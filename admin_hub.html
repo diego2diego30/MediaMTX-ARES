@@ -166,6 +166,24 @@
         </div>
       </div>
       
+      <div style="border: 1px solid var(--green-dim); padding: 20px; background: rgba(0,255,94,0.02); display: flex; flex-direction: column; gap: 15px;">
+        <div style="color: var(--green-mid); font-size: 13px; font-family: var(--font-system); font-weight: bold; letter-spacing: 1px; text-align: center;">ARES USER MANAGEMENT</div>
+        
+        <div id="user-list" style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- Users injected here -->
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+          <input type="text" id="new-user" placeholder="Username" style="padding: 8px; background: #000; border: 1px solid var(--green-dim); color: #fff; font-family: var(--font-mono);">
+          <input type="password" id="new-pass" placeholder="Password" style="padding: 8px; background: #000; border: 1px solid var(--green-dim); color: #fff; font-family: var(--font-mono);">
+          <select id="new-role" style="padding: 8px; background: #000; border: 1px solid var(--green-dim); color: #fff; font-family: var(--font-mono);">
+            <option value="operator">Operator</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button onclick="addUser()" class="dl-btn" style="cursor: pointer; border-color: var(--green-mid);">+ Add User</button>
+        </div>
+      </div>
+      
       <div style="margin-top: auto; border: 1px solid var(--green-dim); padding: 20px; background: rgba(0,255,94,0.02); display: flex; flex-direction: column; gap: 15px;">
         <div style="color: var(--green-mid); font-size: 13px; font-family: var(--font-system); font-weight: bold; text-align: center; letter-spacing: 1px;">TAK SERVER DIRECT ACCESS</div>
         <p style="font-family: var(--font-mono); font-size: 11px; color: var(--green-dim); line-height: 1.5; text-align: center;">
@@ -181,5 +199,66 @@
     </div>
 
   </div>
+
+  <script>
+    function fetchUsers() {
+      fetch('/api/users')
+        .then(r => r.json())
+        .then(users => {
+          if (users.error) return; // Not an admin or not logged in
+          const list = document.getElementById('user-list');
+          list.innerHTML = '';
+          users.forEach(u => {
+            const row = document.createElement('div');
+            row.style = 'display: flex; justify-content: space-between; align-items: center; background: #000; padding: 8px; border: 1px solid #003d14;';
+            
+            const info = document.createElement('div');
+            info.innerHTML = `<span style="color:#00ff5e; font-family:var(--font-mono); font-size:12px;">${u.username}</span> <span style="color:#888; font-size:10px;">(${u.role})</span>`;
+            
+            const delBtn = document.createElement('button');
+            delBtn.innerText = 'X';
+            delBtn.style = 'background: transparent; color: #ff3333; border: 1px solid #ff3333; cursor: pointer; padding: 2px 6px; font-weight: bold;';
+            delBtn.onclick = () => deleteUser(u.username);
+            if (u.username === 'admin') delBtn.style.display = 'none';
+
+            row.appendChild(info);
+            row.appendChild(delBtn);
+            list.appendChild(row);
+          });
+        });
+    }
+
+    function addUser() {
+      const username = document.getElementById('new-user').value;
+      const password = document.getElementById('new-pass').value;
+      const role = document.getElementById('new-role').value;
+      if (!username || !password) return alert('Fill all fields');
+
+      fetch('/api/users', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, role })
+      }).then(r => r.json()).then(res => {
+        if (res.error) alert(res.error);
+        else {
+          document.getElementById('new-user').value = '';
+          document.getElementById('new-pass').value = '';
+          fetchUsers();
+        }
+      });
+    }
+
+    function deleteUser(username) {
+      if (!confirm(`Delete user ${username}?`)) return;
+      fetch('/api/users', {
+        method: 'DELETE',
+        body: JSON.stringify({ username })
+      }).then(r => r.json()).then(res => {
+        if (res.error) alert(res.error);
+        else fetchUsers();
+      });
+    }
+
+    fetchUsers();
+  </script>
 </body>
 </html>

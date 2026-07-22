@@ -270,7 +270,7 @@
         <div class="btn-desc">Tactical Mission Planning & Common Operating Picture</div>
       </a>
 
-      <a href="admin_hub.html" class="portal-btn">
+      <a href="admin_hub.html" class="portal-btn" id="admin-btn">
         <div class="btn-title">ARES Admin Hub</div>
         <div class="btn-desc">Custom Control Panel & Device Provisioning</div>
       </a>
@@ -284,6 +284,16 @@
     </div>
   </div>
 
+  <script>
+    fetch('/api/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data.role !== 'admin') {
+          document.getElementById('admin-btn').style.display = 'none';
+        }
+      })
+      .catch(err => console.error('Error fetching user role:', err));
+  </script>
 </body>
 
 </html>
