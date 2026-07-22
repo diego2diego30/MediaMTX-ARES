@@ -6,6 +6,6 @@
     </Configuration>
     <Contents>
         <Content ignore="false" zipEntry="ARES_Secure_Connection.pref"/>
-        <Content ignore="false" zipEntry="admin.p12"/>
+        <Content ignore="false" zipEntry="cert/admin.p12"/>
     </Contents>
 </MissionPackageManifest>
