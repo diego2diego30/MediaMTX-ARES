@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mediamtx:
     image: bluenviron/mediamtx:latest-ffmpeg
@@ -31,13 +29,12 @@ services:
     environment:
       - MTX_API_URL=http://mediamtx:9997
       - MTX_RTSP_URL=rtsp://mediamtx:8554
-      - TAK_SERVER_HOST=tak-server
+      - TAK_SERVER_HOST=127.0.0.1
       - TAK_SERVER_PORT=8087
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - mediamtx
-      - tak-server
 
   gui:
     image: nginx:alpine
@@ -54,16 +51,20 @@ services:
       - mediamtx
       - telemetry
 
-  tak-server:
-    image: takserver/takserver:latest
-    container_name: tak-server
-    restart: unless-stopped
-    ports:
-      - "8087:8087"       # Plain CoT TCP
-      - "8089:8089"       # TLS CoT (ATAK/WinTAK)
-      - "8443:8443"       # TAK Web Admin UI
-    environment:
-      - STATE=production
-    volumes:
-      - ./tak_data/certs:/opt/tak/certs
-      - ./tak_data/data:/opt/tak/data
+  # Optional TAK Server Container
+  # Official TAK Server images are distributed via TAK.gov (not Docker Hub).
+  # Load your official TAK Docker release tarball via `docker load -i takserver.tar` before enabling.
+  # tak-server:
+  #   image: takserver/takserver:latest
+  #   container_name: tak-server
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8087:8087"       # Plain CoT TCP
+  #     - "8089:8089"       # TLS CoT (ATAK/WinTAK)
+  #     - "8443:8443"       # TAK Web Admin UI
+  #   environment:
+  #     - STATE=production
+  #   volumes:
+  #     - ./tak_data/certs:/opt/tak/certs
+  #     - ./tak_data/data:/opt/tak/data
+
