@@ -67,6 +67,18 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.url === '/auth/logout') {
+    const cookieHeader = req.headers.cookie || '';
+    const match = cookieHeader.match(/ares_session_id=([^;]+)/);
+    if (match) {
+      delete sessions[match[1]];
+    }
+    res.setHeader('Set-Cookie', 'ares_session_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
   if (req.url === '/auth/verify') {
     if (getSession(req)) { res.writeHead(200); res.end('OK'); }
     else { res.writeHead(401); res.end('Unauthorized'); }
