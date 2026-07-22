@@ -75,6 +75,7 @@ const httpServer = http.createServer((req, res) => {
   if (req.url === '/auth/verify_admin') {
     const session = getSession(req);
     if (session && session.role === 'admin') { res.writeHead(200); res.end('OK'); }
+    else if (session) { res.writeHead(403); res.end('Forbidden'); }
     else { res.writeHead(401); res.end('Unauthorized'); }
     return;
   }

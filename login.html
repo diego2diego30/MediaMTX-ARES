@@ -189,6 +189,11 @@
   </div>
 
   <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('error') === 'admin_required') {
+      document.getElementById('error-msg').textContent = 'ADMIN LOGIN NEEDED';
+    }
+
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       
