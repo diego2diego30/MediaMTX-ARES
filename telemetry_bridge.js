@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
 const misb = require('@vidterra/misb.js');
@@ -14,46 +15,120 @@ const db = new sqlite3.Database(mbtilesPath, sqlite3.OPEN_READONLY, (err) => {
   else console.log("Connected to MBTiles database:", mbtilesPath);
 });
 
+const usersFile = path.join(__dirname, 'users.json');
+if (!fs.existsSync(usersFile)) {
+  const defaultUsers = [
+    { username: 'admin', password: 'password', role: 'admin' },
+    { username: 'ares', password: 'ares', role: 'operator' }
+  ];
+  fs.writeFileSync(usersFile, JSON.stringify(defaultUsers, null, 2));
+}
+let usersDB = JSON.parse(fs.readFileSync(usersFile));
+function saveUsers() { fs.writeFileSync(usersFile, JSON.stringify(usersDB, null, 2)); }
+
+const sessions = {};
+function getSession(req) {
+  const cookieHeader = req.headers.cookie || '';
+  const match = cookieHeader.match(/ares_session_id=([^;]+)/);
+  if (match) {
+    const sid = match[1];
+    const session = sessions[sid];
+    if (session && session.expires > Date.now()) return session;
+    if (session) delete sessions[sid];
+  }
+  return null;
+}
+
+
 const httpServer = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   
-  // ── AUTH ENDPOINTS ──
+  // ── AUTH & API ENDPOINTS ──
   if (req.url === '/auth/login' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
     req.on('end', () => {
       try {
         const { user, pass } = JSON.parse(body);
-        if (user === 'ares' && pass === 'ares') {
-          // Issue a simple session cookie valid for 24 hours
-          res.setHeader('Set-Cookie', 'ares_session=authenticated; Path=/; HttpOnly; Max-Age=86400');
+        const validUser = usersDB.find(u => u.username === user && u.password === pass);
+        if (validUser) {
+          const sid = crypto.randomBytes(32).toString('hex');
+          sessions[sid] = { username: validUser.username, role: validUser.role, expires: Date.now() + 86400000 };
+          res.setHeader('Set-Cookie', `ares_session_id=${sid}; Path=/; HttpOnly; Max-Age=86400`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
+          res.end(JSON.stringify({ success: true, role: validUser.role }));
         } else {
-          res.writeHead(401);
-          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          res.writeHead(401); res.end(JSON.stringify({ error: 'Unauthorized' }));
         }
-      } catch (e) {
-        res.writeHead(400);
-        res.end();
-      }
+      } catch (e) { res.writeHead(400); res.end(); }
     });
     return;
   }
 
   if (req.url === '/auth/verify') {
-    // Nginx auth_request module calls this endpoint. 
-    // We check for the ares_session cookie.
-    const cookieHeader = req.headers.cookie || '';
-    if (cookieHeader.includes('ares_session=authenticated')) {
-      res.writeHead(200);
-      res.end('OK');
+    if (getSession(req)) { res.writeHead(200); res.end('OK'); }
+    else { res.writeHead(401); res.end('Unauthorized'); }
+    return;
+  }
+
+  if (req.url === '/auth/verify_admin') {
+    const session = getSession(req);
+    if (session && session.role === 'admin') { res.writeHead(200); res.end('OK'); }
+    else { res.writeHead(401); res.end('Unauthorized'); }
+    return;
+  }
+
+  if (req.url === '/api/me') {
+    const session = getSession(req);
+    if (session) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ role: session.role, username: session.username }));
     } else {
-      res.writeHead(401);
-      res.end('Unauthorized');
+      res.writeHead(401); res.end(JSON.stringify({ error: 'Unauthorized' }));
     }
     return;
+  }
+
+  if (req.url === '/api/users') {
+    const session = getSession(req);
+    if (!session || session.role !== 'admin') { res.writeHead(403); res.end(JSON.stringify({ error: 'Forbidden' })); return; }
+    
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(usersDB.map(u => ({ username: u.username, role: u.role }))));
+      return;
+    }
+    
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const { username, password, role } = JSON.parse(body);
+          if (usersDB.find(u => u.username === username)) {
+            res.writeHead(400); res.end(JSON.stringify({ error: 'User exists' })); return;
+          }
+          usersDB.push({ username, password, role }); saveUsers();
+          res.writeHead(200); res.end(JSON.stringify({ success: true }));
+        } catch (e) { res.writeHead(400); res.end(); }
+      });
+      return;
+    }
+    
+    if (req.method === 'DELETE') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const { username } = JSON.parse(body);
+          if (username === 'admin') { res.writeHead(400); res.end(JSON.stringify({ error: 'Cannot delete admin' })); return; }
+          usersDB = usersDB.filter(u => u.username !== username); saveUsers();
+          res.writeHead(200); res.end(JSON.stringify({ success: true }));
+        } catch (e) { res.writeHead(400); res.end(); }
+      });
+      return;
+    }
   }
 
   // ── MBTILES TILE SERVER ──
