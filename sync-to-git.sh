@@ -40,6 +40,9 @@ ssh "${VPS_USER}@${VPS_IP}" << EOF
     echo "Applying docker-compose updates and restarting services..."
     docker compose -f docker-compose.prod.yml up -d --build
     
+    echo "Reloading Nginx to refresh single-file bind mounts..."
+    docker restart mediamtx-gui
+    
     echo "=================================================================="
     echo " 🎉 SUCCESS! Live server updated seamlessly!"
     echo " 🌐 https://ares-werx.com"
