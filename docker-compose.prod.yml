@@ -26,6 +26,8 @@ services:
     ports:
       - "8081:8081"
       - "9998:9998/udp"   # KLV UDP ingest
+    volumes:
+      - ./recordings:/app/recordings
     environment:
       - MTX_API_URL=http://mediamtx:9997
       - MTX_RTSP_URL=rtsp://mediamtx:8554

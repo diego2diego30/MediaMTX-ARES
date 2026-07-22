@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
@@ -39,6 +40,7 @@ function getSession(req) {
   return null;
 }
 
+const activeRecordings = {};
 
 const httpServer = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -130,6 +132,103 @@ const httpServer = http.createServer((req, res) => {
       });
       return;
     }
+  }
+
+  // ── RECORDING API ──
+  const recordingsDir = path.join(__dirname, 'recordings');
+  if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true });
+  
+  if (req.url === '/api/record/start' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const { streamId } = JSON.parse(body);
+        if (activeRecordings[streamId]) {
+          res.writeHead(400); res.end(JSON.stringify({ error: 'Already recording' })); return;
+        }
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `${streamId}-${timestamp}.mp4`;
+        const filepath = path.join(recordingsDir, filename);
+        
+        const mtxRtspUrl = process.env.MTX_RTSP_URL || 'rtsp://mediamtx:8554';
+        const streamUrl = `${mtxRtspUrl}/${streamId}`;
+        
+        const ffmpeg = spawn('ffmpeg', [
+          '-i', streamUrl,
+          '-c', 'copy',
+          '-f', 'mp4',
+          filepath
+        ]);
+        
+        activeRecordings[streamId] = ffmpeg;
+        
+        ffmpeg.on('close', () => {
+          delete activeRecordings[streamId];
+        });
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, filename }));
+      } catch (e) {
+        res.writeHead(400); res.end();
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/api/record/stop' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const { streamId } = JSON.parse(body);
+        const ffmpeg = activeRecordings[streamId];
+        if (ffmpeg) {
+          ffmpeg.kill('SIGINT');
+          delete activeRecordings[streamId];
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } else {
+          res.writeHead(400); res.end(JSON.stringify({ error: 'Not recording' }));
+        }
+      } catch (e) {
+        res.writeHead(400); res.end();
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/api/recordings' && req.method === 'GET') {
+    fs.readdir(recordingsDir, (err, files) => {
+      if (err) { res.writeHead(500); res.end(); return; }
+      const fileStats = files.filter(f => f.endsWith('.mp4')).map(f => {
+        const stats = fs.statSync(path.join(recordingsDir, f));
+        return { name: f, size: stats.size, mtime: stats.mtime };
+      });
+      // Sort by modification time descending
+      fileStats.sort((a, b) => b.mtime - a.mtime);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(fileStats));
+    });
+    return;
+  }
+
+  if (req.url.startsWith('/api/recordings/download/')) {
+    const filename = path.basename(req.url); // prevent directory traversal
+    const filepath = path.join(recordingsDir, filename);
+    if (fs.existsSync(filepath)) {
+      const stats = fs.statSync(filepath);
+      res.writeHead(200, {
+        'Content-Type': 'video/mp4',
+        'Content-Length': stats.size,
+        'Content-Disposition': `attachment; filename="${filename}"`
+      });
+      const readStream = fs.createReadStream(filepath);
+      readStream.pipe(res);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+    return;
   }
 
   // ── MBTILES TILE SERVER ──

@@ -37,8 +37,8 @@ ssh "${VPS_USER}@${VPS_IP}" << EOF
     echo "Pulling latest code from GitHub..."
     git pull
     
-    echo "Reloading Nginx web server container..."
-    docker compose -f docker-compose.prod.yml restart gui
+    echo "Applying docker-compose updates and restarting services..."
+    docker compose -f docker-compose.prod.yml up -d --build
     
     echo "=================================================================="
     echo " 🎉 SUCCESS! Live server updated seamlessly!"

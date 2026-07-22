@@ -2070,6 +2070,18 @@
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
               </svg>
             </button>
+            <button id="record-main-btn" onclick="toggleRecord()" title="Record Stream"
+              style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--red-alert); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                <circle cx="12" cy="12" r="8"></circle>
+              </svg>
+            </button>
+            <button id="view-recordings-btn" onclick="openRecordingsModal()" title="View Recordings"
+              style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
+              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </button>
             <button class="btn btn-w" id="btn-fit-toggle" onclick="toggleVideoFit()"
               title="Toggle Fit Mode (Contain / Cover)">🗖 Fit: Contain</button>
             <div style="display: flex; gap: 4px;">
@@ -2421,7 +2433,7 @@
       const srcEl = document.getElementById('viewer-src');
       if (srcEl) srcEl.textContent = source;
       document.getElementById('hud-top').textContent = label;
-      document.getElementById('hud-rec').style.display = 'flex';
+      document.getElementById('hud-rec').style.display = 'none'; // Only show when actually recording
       hideWarn();
       resetTelemetryUI(); // Clear old KLV data when switching streams
       
@@ -3247,6 +3259,121 @@
     setTimeout(startTelemetryWs, 1000);
   </script>
 
+  <div id="recordings-modal" class="modal" style="display: none; align-items: center; justify-content: center; z-index: 10000;">
+    <div class="modal-content" style="width: 75%; max-width: 1200px; height: 75vh; box-shadow: 0 0 50px rgba(0,0,0,0.8); display: flex; flex-direction: column;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--green-dim); background: rgba(0, 204, 74, 0.05);">
+        <h3 style="font-family: var(--font-system); letter-spacing: 2px; color: var(--green-mid); margin: 0;">SERVER RECORDINGS</h3>
+        <button class="btn btn-w" onclick="closeRecordingsModal()">CLOSE</button>
+      </div>
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 20px; background: var(--bg-deep);">
+        <table style="width: 100%; text-align: left; border-collapse: collapse; font-family: var(--font-mono); font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--green-dim); color: var(--green-mid);">
+              <th style="padding: 10px;">FILENAME</th>
+              <th style="padding: 10px;">SIZE</th>
+              <th style="padding: 10px;">DATE</th>
+              <th style="padding: 10px; text-align: right;">ACTION</th>
+            </tr>
+          </thead>
+          <tbody id="recordings-list">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let isRecording = false;
+
+    async function toggleRecord() {
+      if (!currentMainPath) {
+        alert("Select a stream first to record.");
+        return;
+      }
+      const btn = document.getElementById('record-main-btn');
+      const recOverlay = document.getElementById('hud-rec');
+
+      if (!isRecording) {
+        try {
+          const res = await fetch('/api/record/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ streamId: currentMainPath })
+          });
+          if (res.ok) {
+            isRecording = true;
+            btn.style.background = 'rgba(204, 17, 17, 0.2)';
+            btn.style.borderColor = 'var(--red-alert)';
+            recOverlay.style.display = 'flex';
+          } else {
+            const err = await res.json();
+            alert("Failed to start recording: " + (err.error || res.statusText));
+          }
+        } catch (e) {
+          console.error(e);
+          alert("Error starting recording.");
+        }
+      } else {
+        try {
+          const res = await fetch('/api/record/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ streamId: currentMainPath })
+          });
+          if (res.ok) {
+            isRecording = false;
+            btn.style.background = 'transparent';
+            btn.style.borderColor = 'var(--green-dark)';
+            recOverlay.style.display = 'none';
+          } else {
+            alert("Failed to stop recording.");
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    async function openRecordingsModal() {
+      document.getElementById('recordings-modal').style.display = 'flex';
+      const tbody = document.getElementById('recordings-list');
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">Loading recordings...</td></tr>';
+      
+      try {
+        const res = await fetch('/api/recordings');
+        const files = await res.json();
+        tbody.innerHTML = '';
+        if (files.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">No recordings found.</td></tr>';
+          return;
+        }
+        files.forEach(f => {
+          const tr = document.createElement('tr');
+          tr.style.borderBottom = '1px solid rgba(0, 200, 70, 0.2)';
+          
+          const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
+          const dateStr = new Date(f.mtime).toLocaleString();
+          
+          tr.innerHTML = `
+            <td style="padding: 10px; color: #fff;">${f.name}</td>
+            <td style="padding: 10px; color: var(--green-dim);">${sizeMB} MB</td>
+            <td style="padding: 10px; color: var(--green-dim);">${dateStr}</td>
+            <td style="padding: 10px; text-align: right;">
+              <a href="/api/recordings/download/${encodeURIComponent(f.name)}" download class="btn btn-w" style="text-decoration: none; font-size: 11px; padding: 4px 8px;">DOWNLOAD</a>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--red-alert);">Failed to load recordings.</td></tr>';
+      }
+    }
+
+    function closeRecordingsModal() {
+      document.getElementById('recordings-modal').style.display = 'none';
+    }
+  </script>
 </body>
 
 </html>
