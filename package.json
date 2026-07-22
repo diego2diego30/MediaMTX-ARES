@@ -1,0 +1,17 @@
+{
+  "name": "mediamtx-ares",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@vidterra/misb.js": "^0.1.30",
+    "sqlite3": "^6.0.1",
+    "ws": "^8.21.1"
+  }
+}

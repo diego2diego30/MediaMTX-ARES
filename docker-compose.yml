@@ -1,0 +1,58 @@
+services:
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    container_name: mediamtx
+    restart: unless-stopped
+    ports:
+      - "8554:8554"       # RTSP TCP
+      - "8554:8554/udp"   # RTSP UDP
+      - "8000:8000/udp"   # RTP UDP
+      - "8001:8001/udp"   # RTCP UDP
+      - "1935:1935"       # RTMP TCP
+      - "8888:8888"       # HLS TCP
+      - "8889:8889"       # WebRTC TCP
+      - "8890:8890/udp"   # SRT UDP
+      - "9997:9997"       # Admin API
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./DayFlight.ts:/DayFlight.ts:ro
+
+  # Nginx GUI server — serves workspace & proxies API/HLS
+  gui:
+    image: nginx:alpine
+    container_name: mediamtx-gui
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # UAS Telemetry Bridge (Node.js + FFmpeg KLV Extraction)
+  telemetry:
+    build:
+      context: .
+      dockerfile: Dockerfile.telemetry
+    container_name: telemetry-bridge
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - MTX_API_URL=http://mediamtx:9997
+      - MTX_RTSP_URL=rtsp://mediamtx:8554
+    volumes:
+      - /Users/diego/official-tak/takserver-docker-5.6-RELEASE-57/tak:/tak_data:ro
+    depends_on:
+      - mediamtx
+
+  # Cloudflare Quick Tunnel — exposes public HTTPS / WebSockets link for MediaMTX GUI
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflare-tunnel
+    restart: unless-stopped
+    command: tunnel --url http://gui:80
+    depends_on:
+      - gui
+
+

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ARES COP</title>
+  <link rel="icon" type="image/png" href="ARESLogo.png">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet Draw CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+  
+  <!-- COP Specific CSS -->
+  <link rel="stylesheet" href="css/cop.css" />
+</head>
+<body>
+
+  <!-- Top Tactical Header -->
+  <header class="cop-header">
+    <div class="cop-logo-title">
+      <img src="ARESLogo.png" alt="ARES Logo" />
+      <div class="cop-title">ARES COP</div>
+    </div>
+    
+    <div class="cop-status" id="telemetry-status">
+      <div class="cop-status-dot"></div>
+      <span id="telemetry-status-text">CONNECTING...</span>
+    </div>
+  </header>
+
+  <!-- Fullscreen Map Canvas -->
+  <div id="cop-map-container"></div>
+
+  <!-- Floating Video Panel (Hidden by Default) -->
+  <div id="pip-container" class="pip-video-container hidden">
+    <div class="pip-header" id="pip-drag-handle">
+      <span class="pip-title" id="pip-title">CAM: UNKNOWN</span>
+      <button class="pip-close" onclick="closePip()">×</button>
+    </div>
+    <video id="pip-video-player" class="pip-video" autoplay muted playsinline></video>
+  </div>
+
+  <!-- Sidebar Toggle Button -->
+  <button id="sidebar-toggle" class="sidebar-toggle-btn">◀ MENU</button>
+
+  <!-- Sliding Sidebar -->
+  <div id="cop-sidebar" class="cop-sidebar-panel collapsed">
+    <div class="sidebar-section">
+      <h3>LIVE FEEDS</h3>
+      <div id="sidebar-streams-list" class="streams-list">
+        <div class="stream-item empty">Scanning for active streams...</div>
+      </div>
+    </div>
+    
+    <div class="sidebar-section">
+      <h3>TRACKS</h3>
+      <div id="sidebar-tracks-list" class="streams-list" style="max-height: 250px; overflow-y: auto;">
+        <div class="stream-item empty">Awaiting telemetry...</div>
+      </div>
+    </div>
+    
+    <div class="sidebar-section">
+      <h3>DEMO CONTROLS</h3>
+      <div class="control-row">
+        <label>Simulation Active</label>
+        <input type="checkbox" id="demo-active-toggle" checked />
+      </div>
+      <div class="control-row">
+        <label>Target Density</label>
+        <input type="range" id="demo-density-slider" min="1" max="15" value="5" />
+      </div>
+      <div class="control-row">
+        <label>Flight Pattern</label>
+        <select id="demo-pattern-select">
+          <option value="orbit">Circular Orbit</option>
+          <option value="grid">Grid Pattern</option>
+          <option value="drift">Random Drift</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet Draw JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+  <!-- Milsymbol JS -->
+  <script src="https://unpkg.com/milsymbol/dist/milsymbol.js"></script>
+  <!-- HLS.js for MediaMTX video -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+  
+  <!-- COP Logic -->
+  <script src="js/cop_map.js"></script>
+  <script src="js/cop_video.js"></script>
+
+  <script>
+    // Initialize COP Map
+    window.addEventListener('DOMContentLoaded', () => {
+      initCopMap();
+      connectTelemetry();
+      initPipDraggable();
+    });
+  </script>
+</body>
+</html>

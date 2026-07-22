@@ -1,0 +1,308 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Inter:wght@400;600;800&display=swap');
+
+:root {
+  --green-bright: #00ff5e;
+  --green-mid: #00cc4a;
+  --green-dark: #00551e;
+  --green-glow: rgba(0, 255, 94, 0.4);
+  --bg-deep: #050505;
+  --bg-card: #0a0a0a;
+  --border: #1a3320;
+  --grey-mid: #889988;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+  --font-header: 'Orbitron', sans-serif;
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--bg-deep);
+  color: var(--green-bright);
+  font-family: var(--font-body);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Top Header ── */
+.cop-header {
+  flex-shrink: 0;
+  height: 50px;
+  background: var(--bg-deep);
+  border-bottom: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 1000; /* Above Leaflet controls */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+}
+
+.cop-logo-title {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.cop-logo-title img {
+  height: 35px;
+}
+
+.cop-title {
+  font-family: var(--font-header);
+  font-size: 1.2rem;
+  letter-spacing: 2px;
+  color: var(--green-bright);
+  text-shadow: 0 0 10px var(--green-glow);
+  text-transform: uppercase;
+}
+
+.cop-status {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cop-status-dot {
+  width: 10px;
+  height: 10px;
+  background: var(--green-bright);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--green-bright);
+}
+
+.cop-status.disconnected .cop-status-dot {
+  background: red;
+  box-shadow: 0 0 10px red;
+}
+
+.cop-status.disconnected {
+  color: red;
+}
+
+/* ── Map Container ── */
+#cop-map-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #000; /* Fallback for tiles */
+}
+
+/* ── Leaflet Overrides ── */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: rgba(0, 20, 0, 0.9) !important;
+  border: 1px solid var(--green-mid);
+  color: var(--green-bright) !important;
+  border-radius: 4px;
+  box-shadow: 0 0 15px rgba(0, 255, 94, 0.2);
+}
+.leaflet-popup-content {
+  margin: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.leaflet-control-zoom a {
+  background-color: rgba(0, 20, 0, 0.8) !important;
+  color: var(--green-bright) !important;
+  border: 1px solid var(--border) !important;
+}
+.leaflet-control-zoom a:hover {
+  background-color: var(--green-dark) !important;
+}
+
+/* Dark mode for Leaflet Draw */
+.leaflet-draw-toolbar {
+  filter: invert(0.9) sepia(0.2) hue-rotate(80deg) saturate(2) brightness(1.2);
+}
+
+.tactical-map-label {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--green-bright) !important;
+  font-family: var(--font-mono) !important;
+  font-weight: bold;
+  font-size: 13px;
+  text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000, 0 0 5px var(--green-bright);
+}
+.leaflet-tooltip-left.tactical-map-label::before,
+.leaflet-tooltip-right.tactical-map-label::before,
+.leaflet-tooltip-top.tactical-map-label::before,
+.leaflet-tooltip-bottom.tactical-map-label::before {
+  display: none !important;
+}
+
+/* ── Floating Video PiP ── */
+.pip-video-container {
+  position: absolute;
+  bottom: 30px;
+  right: 30px;
+  width: 320px;
+  height: 220px;
+  background: rgba(5, 5, 5, 0.9);
+  border: 1px solid var(--green-mid);
+  border-radius: 6px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  overflow: hidden;
+  resize: both; /* Optional CSS resize */
+}
+
+.pip-header {
+  height: 30px;
+  background: var(--green-dark);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  cursor: grab;
+}
+
+.pip-header:active {
+  cursor: grabbing;
+}
+
+.pip-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.pip-close {
+  background: none;
+  border: none;
+  color: var(--green-bright);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.pip-video {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  object-fit: contain;
+}
+
+/* ── Hidden Utilities ── */
+.hidden {
+  display: none !important;
+}
+
+/* ── Sliding Sidebar ── */
+.sidebar-toggle-btn {
+  position: absolute;
+  top: 70px;
+  right: 20px;
+  z-index: 10000;
+  background: rgba(10, 10, 10, 0.9);
+  border: 1px solid var(--border);
+  color: var(--green-bright);
+  padding: 8px 12px;
+  font-family: var(--font-header);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 4px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s ease;
+  width: 90px;
+  text-align: center;
+}
+.sidebar-toggle-btn:hover {
+  background: var(--green-dark);
+}
+
+.cop-sidebar-panel {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  width: 300px;
+  height: calc(100vh - 50px);
+  background: rgba(5, 5, 5, 0.95);
+  border-left: 2px solid var(--border);
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  box-sizing: border-box;
+  transition: transform 0.3s ease;
+  box-shadow: -10px 0 30px rgba(0,0,0,0.8);
+}
+.cop-sidebar-panel.collapsed {
+  transform: translateX(302px);
+}
+
+.sidebar-section {
+  margin-bottom: 25px;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 15px;
+}
+.sidebar-section h3 {
+  font-family: var(--font-header);
+  font-size: 14px;
+  margin: 0 0 15px 0;
+  letter-spacing: 1px;
+}
+
+.streams-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.stream-item {
+  background: rgba(15, 15, 15, 0.8);
+  border: 1px solid var(--border);
+  padding: 10px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.stream-item:hover {
+  background: var(--green-dark);
+}
+.stream-item.empty {
+  color: var(--grey-mid);
+  cursor: default;
+  background: none;
+  border: none;
+}
+
+.control-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.control-row input[type="range"] {
+  width: 120px;
+  accent-color: var(--green-bright);
+}
+.control-row select {
+  background: #111;
+  color: var(--green-bright);
+  border: 1px solid var(--border);
+  padding: 4px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+.control-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--green-bright);
+}

@@ -1,0 +1,63 @@
+# MediaMTX configuration — TAK Server & UAS Integration
+# ─────────────────────────────────────────────────────
+
+# RTSP — TCP only (reliable on tactical/mobile links)
+rtspTransports: [tcp, udp]
+rtsp: yes
+rtspAddress: :8554
+
+# RTMP — drone/UAS ingest (DJI Fly, QGC, FFmpeg)
+rtmp: yes
+rtmpAddress: :1935
+
+# SRT — secure reliable transport (weak/cellular links)
+srt: yes
+srtAddress: :8890
+
+# HLS — browser and TAK dashboard playback
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentCount: 7
+# Disable the cookie-check redirect — required for browser playback
+# from file:// and cross-origin contexts
+hlsCDNSecret: ""
+hlsAllowOrigins: ["*"]
+
+# WebRTC — sub-second browser playback
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigins: ["*"]
+
+# Admin API
+api: yes
+apiAddress: :9997
+apiAllowOrigins: ["*"]
+
+# Authentication — open for local development
+# Lock down with credentials before cloud deployment
+authInternalUsers:
+  - user: ares_pilot
+    pass: ares_secure
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: api
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: api
+
+# Stream paths
+paths:
+  demo:
+    runOnInit: ffmpeg -re -stream_loop -1 -fflags +genpts -i /DayFlight.ts -map 0:v -c:v libx264 -preset ultrafast -tune zerolatency -bf 0 -g 60 -f rtsp -rtsp_transport tcp 'rtsp://localhost:8554/demo' -map 0:d -c copy -f data 'udp://telemetry-bridge:9998'
+    runOnInitRestart: yes
+  all:

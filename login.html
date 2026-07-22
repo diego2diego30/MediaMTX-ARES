@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="ARESLogo.png">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@900&family=IBM+Plex+Mono:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+  <title>ARES Authentication</title>
+  <style>
+    :root {
+      --black: #000000;
+      --bg-deep: #020a04;
+      --bg-panel: #040e06;
+      --bg-card: #071209;
+      --green-bright: #00ff5e;
+      --green-mid: #00cc4a;
+      --green-dim: #007a2b;
+      --green-dark: #003d14;
+      --green-glow: rgba(0, 255, 94, 0.22);
+      --border: rgba(0, 200, 70, 0.22);
+      --font-system: 'Helvetica', 'Arial', sans-serif;
+      --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--black);
+      color: #fff;
+      font-family: var(--font-system);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0, 255, 94, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 94, .035) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .login-container {
+      position: relative;
+      z-index: 10;
+      background: var(--bg-deep);
+      border: 1px solid var(--green-dim);
+      box-shadow: 0 0 32px var(--green-glow);
+      padding: 40px 50px;
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .login-container::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--green-bright);
+    }
+
+    .logo {
+      height: 120px;
+      margin-bottom: 10px;
+    }
+
+    .title {
+      font-family: var(--font-system);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 6px;
+      padding-left: 6px;
+      width: 100%;
+      text-transform: uppercase;
+      color: var(--green-mid);
+      text-align: center;
+    }
+
+    .form-group {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--green-dim);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .input {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      color: var(--green-bright);
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      outline: none;
+      transition: border 0.3s, box-shadow 0.3s;
+    }
+
+    .input:focus {
+      border-color: var(--green-mid);
+      box-shadow: 0 0 10px var(--green-glow);
+    }
+
+    .btn {
+      width: 100%;
+      background: rgba(0, 255, 94, 0.1);
+      border: 1px solid var(--green-mid);
+      color: var(--green-bright);
+      padding: 12px 12px 12px 15px;
+      font-family: var(--font-system);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      cursor: pointer;
+      margin-top: 10px;
+      text-align: center;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    .btn:hover {
+      background: rgba(0, 255, 94, 0.2);
+      box-shadow: 0 0 16px var(--green-glow);
+    }
+
+    .error-msg {
+      color: #cc1111;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-align: center;
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-container">
+    <img src="ARESLogo.png" alt="ARES Logo" class="logo">
+    <div class="title">ARES-WERX LOGIN</div>
+
+    <form id="login-form" style="width: 100%;">
+      <div class="form-group">
+        <label class="label">Username</label>
+        <input type="text" id="username" class="input" autocomplete="off" spellcheck="false" autofocus>
+      </div>
+      <div class="form-group" style="margin-top: 16px;">
+        <label class="label">Password</label>
+        <input type="password" id="password" class="input">
+      </div>
+
+      <div class="error-msg" id="error-msg"></div>
+
+      <button type="submit" class="btn" id="login-btn">Login</button>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const user = document.getElementById('username').value.trim();
+      const pass = document.getElementById('password').value.trim();
+      const errEl = document.getElementById('error-msg');
+      const btn = document.getElementById('login-btn');
+      
+      errEl.textContent = '';
+      
+      if (!user || !pass) {
+        errEl.textContent = 'CREDENTIALS REQUIRED';
+        return;
+      }
+      
+      btn.textContent = 'AUTHENTICATING...';
+      btn.style.opacity = '0.7';
+
+      try {
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const host = window.location.host;
+        const authUrl = window.location.port === '5500' || window.location.protocol === 'file:' 
+          ? 'http://localhost:8081/auth/login' 
+          : `${proto}//${host}/auth/login`;
+
+        const res = await fetch(authUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user, pass })
+        });
+
+        if (res.ok) {
+          // Add a tiny delay for aesthetic effect
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 400);
+        } else {
+          errEl.textContent = 'AUTHORIZATION DENIED';
+          btn.textContent = 'Initialize Connection';
+          btn.style.opacity = '1';
+        }
+      } catch (err) {
+        errEl.textContent = 'CONNECTION FAILED';
+        btn.textContent = 'Initialize Connection';
+        btn.style.opacity = '1';
+      }
+    });
+  </script>
+</body>
+</html>
