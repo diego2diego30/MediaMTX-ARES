@@ -43,6 +43,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8444:8444"
     volumes:
       - ./:/usr/share/nginx/html:ro
       - ./nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
