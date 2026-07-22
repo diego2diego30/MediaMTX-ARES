@@ -3,7 +3,6 @@ const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
