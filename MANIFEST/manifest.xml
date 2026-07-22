@@ -1,10 +1,11 @@
 <MissionPackageManifest version="2">
     <Configuration>
-        <Parameter name="uid" value="ARES-TAK-Connection"/>
-        <Parameter name="name" value="ARES TAK Connection"/>
+        <Parameter name="uid" value="ARES-TAK-Secure"/>
+        <Parameter name="name" value="ARES Secure Connection"/>
         <Parameter name="onReceiveDelete" value="false"/>
     </Configuration>
     <Contents>
-        <Content ignore="false" zipEntry="ARES_TAK_Connection.pref"/>
+        <Content ignore="false" zipEntry="ARES_Secure_Connection.pref"/>
+        <Content ignore="false" zipEntry="admin.p12"/>
     </Contents>
 </MissionPackageManifest>
