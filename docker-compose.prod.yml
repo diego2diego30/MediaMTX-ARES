@@ -29,7 +29,7 @@ services:
     environment:
       - MTX_API_URL=http://mediamtx:9997
       - MTX_RTSP_URL=rtsp://mediamtx:8554
-      - TAK_SERVER_HOST=127.0.0.1
+      - TAK_SERVER_HOST=host.docker.internal
       - TAK_SERVER_PORT=8087
     extra_hosts:
       - "host.docker.internal:host-gateway"
