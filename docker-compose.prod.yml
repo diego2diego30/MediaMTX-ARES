@@ -51,6 +51,8 @@ services:
       - ./nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./cert:/etc/nginx/tak-cert:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - mediamtx
       - telemetry
