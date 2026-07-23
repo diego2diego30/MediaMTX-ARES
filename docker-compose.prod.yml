@@ -56,6 +56,9 @@ services:
     depends_on:
       - mediamtx
       - telemetry
+    networks:
+      - default
+      - takserver_default
 
   # Optional TAK Server Container
   # Official TAK Server images are distributed via TAK.gov (not Docker Hub).
@@ -73,4 +76,8 @@ services:
   #   volumes:
   #     - ./tak_data/certs:/opt/tak/certs
   #     - ./tak_data/data:/opt/tak/data
+
+networks:
+  takserver_default:
+    external: true
 
