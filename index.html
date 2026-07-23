@@ -301,7 +301,7 @@
     function logout() {
       fetch('/auth/logout', { method: 'POST' })
         .finally(() => {
-          window.location.href = '/login.html';
+          window.location.href = '/login';
         });
     }
   </script>
