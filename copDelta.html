@@ -2235,6 +2235,8 @@
               <button class="tool-btn" onclick="toggleWaypointMode()" id="tool-waypoint" title="Mission Waypoint Planner (UAS/USV)">📍</button>
               <button class="tool-btn" onclick="toggleRangeRings()" id="tool-rings" title="Toggle 1km / 5km Range Rings">⭕</button>
               <button class="tool-btn" onclick="toggleCopMap()" id="tool-map" title="Toggle Map Mode">🗺️</button>
+              <input type="file" id="map-upload-input" accept=".mbtiles" style="display: none;" onchange="handleMapUpload(event)">
+              <button class="tool-btn" onclick="document.getElementById('map-upload-input').click()" id="tool-upload" title="Upload Map Database (.mbtiles)">📁</button>
               <button class="tool-btn" onclick="clearMapMarkings()" title="Clear Temporary Markings">🗑️</button>
             </div>
           </div>

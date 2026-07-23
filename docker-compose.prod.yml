@@ -28,6 +28,7 @@ services:
       - "9998:9998/udp"   # KLV UDP ingest
     volumes:
       - ./recordings:/app/recordings
+      - ./mbtiles:/app/mbtiles
     environment:
       - MTX_API_URL=http://mediamtx:9997
       - MTX_RTSP_URL=rtsp://mediamtx:8554

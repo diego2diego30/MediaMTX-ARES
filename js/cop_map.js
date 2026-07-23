@@ -340,3 +340,44 @@ window.addEventListener('DOMContentLoaded', () => {
     sendDemoControl({ cmd: 'set_pattern', pattern: e.target.value });
   });
 });
+
+window.handleMapUpload = async function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  const uploadBtn = document.getElementById('tool-upload');
+  const originalText = uploadBtn.innerHTML;
+  uploadBtn.innerHTML = '⏳';
+  uploadBtn.disabled = true;
+
+  try {
+    const apiHost = window.location.protocol + "//" + window.location.host;
+    const response = await fetch(`${apiHost}/api/upload_map?filename=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      body: file
+    });
+
+    if (response.ok) {
+      alert('Map uploaded and loaded successfully!');
+      // Force map tile reload
+      const mapContainer = document.getElementById('map');
+      if (mapContainer && typeof L !== 'undefined') {
+        // Find existing tile layers and redraw them
+        map.eachLayer((layer) => {
+          if (layer._url && layer._url.includes('/tiles/')) {
+            layer.redraw();
+          }
+        });
+      }
+    } else {
+      alert('Failed to upload map.');
+    }
+  } catch (error) {
+    console.error('Map upload error:', error);
+    alert('Map upload error.');
+  } finally {
+    uploadBtn.innerHTML = originalText;
+    uploadBtn.disabled = false;
+    event.target.value = ''; // Reset input
+  }
+};

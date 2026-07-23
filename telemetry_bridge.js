@@ -9,11 +9,28 @@ const net = require('net');
 const misb = require('@vidterra/misb.js');
 const SYNC_KEY = Buffer.from([0x06, 0x0E, 0x2B, 0x34, 0x02, 0x0B, 0x01, 0x01, 0x0E, 0x01, 0x03, 0x01, 0x01, 0x00, 0x00, 0x00]);
 
-const mbtilesPath = '/tak_data/camp_lejeune.mbtiles';
-const db = new sqlite3.Database(mbtilesPath, sqlite3.OPEN_READONLY, (err) => {
-  if (err) console.error("MBTiles DB Error:", err);
-  else console.log("Connected to MBTiles database:", mbtilesPath);
-});
+let db = null;
+
+function connectTilesDb(filename) {
+  if (db) {
+    db.close();
+    db = null;
+  }
+  const dir = path.join(__dirname, 'mbtiles');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  
+  const targetPath = path.join(dir, filename);
+  if (fs.existsSync(targetPath)) {
+    db = new sqlite3.Database(targetPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) console.error("MBTiles DB Error:", err.message);
+      else console.log("Connected to MBTiles database:", targetPath);
+    });
+  } else {
+    console.log("No MBTiles file found at:", targetPath);
+  }
+}
+
+connectTilesDb('camp_lejeune.mbtiles');
 
 const usersFile = path.join(__dirname, 'users.json');
 if (!fs.existsSync(usersFile)) {
@@ -242,6 +259,29 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.url.startsWith('/api/upload_map') && req.method === 'POST') {
+    const urlObj = new URL(req.url, `http://${req.headers.host}`);
+    const filename = urlObj.searchParams.get('filename') || 'map.mbtiles';
+    const safeFilename = path.basename(filename);
+    const mbtilesDir = path.join(__dirname, 'mbtiles');
+    if (!fs.existsSync(mbtilesDir)) fs.mkdirSync(mbtilesDir, { recursive: true });
+    const targetPath = path.join(mbtilesDir, safeFilename);
+    const writeStream = fs.createWriteStream(targetPath);
+    req.pipe(writeStream);
+    
+    req.on('end', () => {
+      console.log('Map uploaded:', targetPath);
+      connectTilesDb(safeFilename);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, file: safeFilename }));
+    });
+    
+    req.on('error', () => {
+      res.writeHead(500); res.end('Upload error');
+    });
+    return;
+  }
+
   // ── MBTILES TILE SERVER ──
   const match = req.url.match(/^\/tiles\/(\d+)\/(\d+)\/(\d+)\.png$/);
   if (match) {
@@ -249,6 +289,12 @@ const httpServer = http.createServer((req, res) => {
     const x = parseInt(match[2], 10);
     const y = parseInt(match[3], 10);
     const tmsY = (1 << z) - 1 - y;
+    
+    if (!db) {
+      res.writeHead(404);
+      res.end('Map database not loaded');
+      return;
+    }
     
     db.get('SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?', [z, x, tmsY], (err, row) => {
       if (err) {
@@ -435,8 +481,10 @@ function startFfmpegExtraction(pathName) {
 // ------------------------------------------------------------------
 let takClient = new net.Socket();
 function connectTAK() {
-  takClient.connect(8087, 'host.docker.internal', () => {
-    console.log('Connected to TAK Server on host.docker.internal:8087');
+  const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
+  const takPort = parseInt(process.env.TAK_SERVER_PORT, 10) || 8087;
+  takClient.connect(takPort, takHost, () => {
+    console.log(`Connected to TAK Server on ${takHost}:${takPort}`);
   });
 }
 connectTAK();
@@ -452,11 +500,11 @@ takClient.on('data', (data) => {
       let eventXml = cotBuffer.substring(startIndex, endIndex + 8);
       cotBuffer = cotBuffer.substring(endIndex + 8);
       
-      let uidMatch = eventXml.match(/uid="([^"]+)"/);
-      let typeMatch = eventXml.match(/type="([^"]+)"/);
-      let latMatch = eventXml.match(/lat="([^"]+)"/);
-      let lonMatch = eventXml.match(/lon="([^"]+)"/);
-      let callsignMatch = eventXml.match(/callsign="([^"]+)"/);
+      let uidMatch = eventXml.match(/uid=['"]([^'"]+)['"]/);
+      let typeMatch = eventXml.match(/type=['"]([^'"]+)['"]/);
+      let latMatch = eventXml.match(/lat=['"]([^'"]+)['"]/);
+      let lonMatch = eventXml.match(/lon=['"]([^'"]+)['"]/);
+      let callsignMatch = eventXml.match(/callsign=['"]([^'"]+)['"]/);
       
       if (uidMatch && typeMatch && latMatch && lonMatch) {
         let cotObj = {
