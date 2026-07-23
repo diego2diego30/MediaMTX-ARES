@@ -5,8 +5,8 @@
         <Parameter name="onReceiveDelete" value="false"/>
     </Configuration>
     <Contents>
-        <Content ignore="false" zipEntry="ARES_Secure_Connection.pref"/>
-        <Content ignore="false" zipEntry="admin.p12"/>
-        <Content ignore="false" zipEntry="truststore-root.p12"/>
+        <Content ignore="false" zipEntry="ARES_Secure_Connection.pref" mimeType="application/x-tak-config"/>
+        <Content ignore="false" zipEntry="admin.p12" mimeType="application/x-pkcs12"/>
+        <Content ignore="false" zipEntry="truststore-root.p12" mimeType="application/x-pkcs12"/>
     </Contents>
 </MissionPackageManifest>
