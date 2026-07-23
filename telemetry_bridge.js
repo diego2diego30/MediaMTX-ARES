@@ -502,6 +502,8 @@ function connectTAK() {
         let eventXml = cotBuffer.substring(startIndex, endIndex + 8);
         cotBuffer = cotBuffer.substring(endIndex + 8);
         
+        console.log(`[RAW CoT] ${eventXml}`);
+        
         let uidMatch = eventXml.match(/uid=['"]([^'"]+)['"]/);
         let typeMatch = eventXml.match(/type=['"]([^'"]+)['"]/);
         let latMatch = eventXml.match(/lat=['"]([^'"]+)['"]/);
