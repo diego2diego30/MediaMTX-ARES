@@ -60,6 +60,14 @@
     </div>
     
     <div class="sidebar-section">
+      <h3>MAP CONFIGURATION</h3>
+      <div class="control-row" style="text-align: center; margin-top: 10px;">
+        <input type="file" id="map-upload-input" accept=".mbtiles" style="display: none;" onchange="handleMapUpload(event)">
+        <button id="tool-upload" style="width: 100%; background: transparent; color: var(--green-bright); border: 1px solid var(--green-mid); padding: 8px; cursor: pointer; font-family: var(--font-display); font-weight: 700; border-radius: 4px;" onclick="document.getElementById('map-upload-input').click()">📁 UPLOAD MBTILES</button>
+      </div>
+    </div>
+    
+    <div class="sidebar-section">
       <h3>DEMO CONTROLS</h3>
       <div class="control-row">
         <label>Simulation Active</label>
