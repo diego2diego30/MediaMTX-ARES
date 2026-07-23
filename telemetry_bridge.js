@@ -479,59 +479,68 @@ function startFfmpegExtraction(pathName) {
 // ------------------------------------------------------------------
 // TAK Server TCP CoT Ingestion
 // ------------------------------------------------------------------
-let takClient = new net.Socket();
+let takClient = null;
+let cotBuffer = '';
+
 function connectTAK() {
+  if (takClient) {
+    takClient.removeAllListeners();
+    takClient.destroy();
+  }
+  takClient = new net.Socket();
+  
   const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
   const takPort = parseInt(process.env.TAK_SERVER_PORT, 10) || 8087;
+
+  takClient.on('data', (data) => {
+    cotBuffer += data.toString();
+    
+    let startIndex = cotBuffer.indexOf('<event');
+    while (startIndex !== -1) {
+      let endIndex = cotBuffer.indexOf('</event>', startIndex);
+      if (endIndex !== -1) {
+        let eventXml = cotBuffer.substring(startIndex, endIndex + 8);
+        cotBuffer = cotBuffer.substring(endIndex + 8);
+        
+        let uidMatch = eventXml.match(/uid=['"]([^'"]+)['"]/);
+        let typeMatch = eventXml.match(/type=['"]([^'"]+)['"]/);
+        let latMatch = eventXml.match(/lat=['"]([^'"]+)['"]/);
+        let lonMatch = eventXml.match(/lon=['"]([^'"]+)['"]/);
+        let callsignMatch = eventXml.match(/callsign=['"]([^'"]+)['"]/);
+        
+        if (uidMatch && typeMatch && latMatch && lonMatch) {
+          let cotObj = {
+            uid: uidMatch[1],
+            type: typeMatch[1],
+            lat: parseFloat(latMatch[1]),
+            lon: parseFloat(lonMatch[1]),
+            callsign: callsignMatch ? callsignMatch[1] : uidMatch[1]
+          };
+          
+          broadcast([cotObj]);
+        }
+        
+        startIndex = cotBuffer.indexOf('<event');
+      } else {
+        break;
+      }
+    }
+  });
+
+  takClient.on('close', () => {
+    console.log('TAK Server connection closed, reconnecting in 5s...');
+    setTimeout(connectTAK, 5000);
+  });
+
+  takClient.on('error', (err) => {
+    console.error('TAK Server connection error:', err.message);
+  });
+
   takClient.connect(takPort, takHost, () => {
     console.log(`Connected to TAK Server on ${takHost}:${takPort}`);
   });
 }
 connectTAK();
-
-let cotBuffer = '';
-takClient.on('data', (data) => {
-  cotBuffer += data.toString();
-  
-  let startIndex = cotBuffer.indexOf('<event');
-  while (startIndex !== -1) {
-    let endIndex = cotBuffer.indexOf('</event>', startIndex);
-    if (endIndex !== -1) {
-      let eventXml = cotBuffer.substring(startIndex, endIndex + 8);
-      cotBuffer = cotBuffer.substring(endIndex + 8);
-      
-      let uidMatch = eventXml.match(/uid=['"]([^'"]+)['"]/);
-      let typeMatch = eventXml.match(/type=['"]([^'"]+)['"]/);
-      let latMatch = eventXml.match(/lat=['"]([^'"]+)['"]/);
-      let lonMatch = eventXml.match(/lon=['"]([^'"]+)['"]/);
-      let callsignMatch = eventXml.match(/callsign=['"]([^'"]+)['"]/);
-      
-      if (uidMatch && typeMatch && latMatch && lonMatch) {
-        let cotObj = {
-          uid: uidMatch[1],
-          type: typeMatch[1],
-          lat: parseFloat(latMatch[1]),
-          lon: parseFloat(lonMatch[1]),
-          callsign: callsignMatch ? callsignMatch[1] : uidMatch[1]
-        };
-        
-        broadcast([cotObj]);
-      }
-      
-      startIndex = cotBuffer.indexOf('<event');
-    } else {
-      break;
-    }
-  }
-});
-
-takClient.on('close', () => {
-  console.log('TAK Server connection closed, reconnecting in 5s...');
-  setTimeout(connectTAK, 5000);
-});
-takClient.on('error', (err) => {
-  console.error('TAK Server connection error:', err.message);
-});
 
 function stopFfmpegExtraction() {
   if (ffmpegProcess) {
