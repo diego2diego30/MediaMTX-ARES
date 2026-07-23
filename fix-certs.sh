@@ -2,33 +2,53 @@
 set -e
 
 echo "=================================================================="
-echo " 🔐 Fixing TAK Server Certificate Hostname Mismatch..."
+echo " 🔐 Rebuilding TAK Server PKI (ARES-WERX Root CA)..."
 echo "=================================================================="
 
-# Directories
 ARES_DIR="/Users/diego/MediaMTX ARES"
 TAK_CERT_DIR="/Users/diego/official-tak/takserver-docker-5.6-RELEASE-57/tak/certs"
 
 cd "$TAK_CERT_DIR"
 
-# Generate new certificate for ares-werx.com
-echo "-> Generating new server certificate for ares-werx.com"
-# Ignore keytool failure (exit code 1) since we only need the .p12 file, not .jks
+# 1. Wipe Old Certificates
+echo "-> [1/6] Wiping old certificates..."
+rm -f files/* || true
+
+# 2. Generate New Root CA
+echo "-> [2/6] Generating new Root CA ('ARES-WERX Root CA')..."
+# Use yes '' to automatically answer any prompts if needed (though we supply vars)
+STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeRootCa.sh --ca-name "ARES-WERX Root CA"
+
+# 3. Generate New Server Certificate
+echo "-> [3/6] Generating new Server Certificate (ares-werx.com)..."
+# Ignore keytool failure (exit code 1) due to no Java
 STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh server ares-werx.com || true
 
-# Replace default takserver certificates
-echo "-> Replacing default takserver.p12 with new certificates"
+# Rename to takserver
 cd files
 mv ares-werx.com.p12 takserver.p12
 mv ares-werx.com.pem takserver.pem
+cd ..
 
-# Extract and convert the Truststore to a .crt file for iOS compatibility
-echo "-> Converting truststore to .crt for iOS"
-# The truststore is in truststore-root.p12 with password 'atakatak'
-# We extract the certificate and save it as ares-root.crt (using -legacy for OpenSSL 3 support)
-openssl pkcs12 -legacy -in truststore-root.p12 -nokeys -out "$ARES_DIR/ares-root.crt" -passin pass:atakatak
+# 4. Generate Admin Certificate
+echo "-> [4/6] Generating new Admin Client Certificate..."
+STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client admin || true
 
-echo "-> Copied ares-root.crt to $ARES_DIR"
+# 5. Export iOS Root Certificate
+echo "-> [5/6] Exporting iOS-friendly Root Certificate..."
+openssl pkcs12 -legacy -in files/truststore-root.p12 -nokeys -out "$ARES_DIR/ares-root.crt" -passin pass:atakatak
+
+# 6. Rebuild ARES_Secure_Connection.zip
+echo "-> [6/6] Rebuilding ARES_Secure_Connection.zip..."
+cd "$ARES_DIR"
+mkdir -p ARES_Secure_Connection
+cp "$TAK_CERT_DIR/files/admin.p12" ARES_Secure_Connection/
+cp "$TAK_CERT_DIR/files/truststore-root.p12" ARES_Secure_Connection/
+rm -f ARES_Secure_Connection.zip
+cd ARES_Secure_Connection
+zip -q -r "../ARES_Secure_Connection.zip" .
+cd ..
+
 echo "=================================================================="
-echo " 🎉 SUCCESS! Certificates fixed and ready to be deployed."
+echo " 🎉 SUCCESS! PKI Rebuild Complete."
 echo "=================================================================="
