@@ -517,6 +517,7 @@ function connectTAK() {
             callsign: callsignMatch ? callsignMatch[1] : uidMatch[1]
           };
           
+          console.log(`[CoT Received] ${cotObj.callsign} (${cotObj.type}) at ${cotObj.lat}, ${cotObj.lon}`);
           broadcast([cotObj]);
         }
         
