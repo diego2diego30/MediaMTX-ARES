@@ -183,14 +183,40 @@ function processKlvData(data) {
   window.trackData[id] = { id, callsign, lat: data.lat, lon: data.lon, type: 'UAS FEED' };
 }
 
+function cotToSidc(cotType) {
+  if (!cotType) return 'SFG-UCI----'; 
+  
+  if (cotType.startsWith('b-m')) {
+    return 'GUGPGPRP--****X'; // Reference Point Marker
+  }
+  
+  const parts = cotType.split('-');
+  if (parts.length < 3) return 'SFG-UCI----';
+  
+  let affiliation = 'U'; 
+  if (parts[1] === 'f') affiliation = 'F';
+  if (parts[1] === 'h') affiliation = 'H';
+  if (parts[1] === 'n') affiliation = 'N';
+  
+  let dimension = 'Z';
+  if (parts[2] === 'G') dimension = 'G'; 
+  if (parts[2] === 'A') dimension = 'A'; 
+  if (parts[2] === 'S') dimension = 'S'; 
+  if (parts[2] === 'U') dimension = 'U'; 
+  
+  if (dimension === 'A' && parts.length > 3 && parts[3] === 'U') {
+    return `S${affiliation}APMFQ--------`; // UAV
+  }
+  
+  return `S${affiliation}${dimension}P-------`; 
+}
+
 function processCotData(cotArray) {
   cotArray.forEach(cot => {
     const id = cot.uid;
     const latlng = [cot.lat, cot.lon];
     
-    // Fallback SIDC if cot.type isn't a valid 2525 symbol string
-    let sidc = cot.type;
-    if (!sidc || sidc.length < 10) sidc = 'SFG-UCI----'; // Friendly Ground Unit 
+    const sidc = cotToSidc(cot.type);
 
     // Omit uniqueDesignation so the dark embedded text is removed
     const sym = new ms.Symbol(sidc, { size: 25 });
@@ -225,8 +251,12 @@ function processCotData(cotArray) {
     `;
     markers[id].bindPopup(popupHtml);
 
+    let trackType = 'GROUND UNIT';
+    if (cot.type && cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
+    if (cot.type && cot.type.startsWith('b-m')) trackType = 'MARKER';
+    
     // Update track data for sidebar
-    window.trackData[id] = { id, callsign: cot.callsign, lat: cot.lat, lon: cot.lon, type: 'GROUND UNIT' };
+    window.trackData[id] = { id, callsign: cot.callsign, lat: cot.lat, lon: cot.lon, type: trackType };
   });
 }
 
