@@ -527,7 +527,24 @@ function connectTAK() {
     }
   });
 
+  let pingInterval = null;
+
+  function sendPing() {
+    if (!takClient || takClient.destroyed) return;
+    const now = new Date();
+    const stale = new Date(now.getTime() + 60000);
+    const pingXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<event version="2.0" uid="ares-cop-server" type="b-m-p-s-m" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o">
+  <point lat="0.0" lon="0.0" hae="0.0" ce="9999999.0" le="9999999.0"/>
+  <detail>
+    <contact callsign="ARES-COP" endpoint="*:-1:stcp"/>
+  </detail>
+</event>`;
+    takClient.write(pingXml);
+  }
+
   takClient.on('close', () => {
+    if (pingInterval) clearInterval(pingInterval);
     console.log('TAK Server connection closed, reconnecting in 5s...');
     setTimeout(connectTAK, 5000);
   });
@@ -538,6 +555,8 @@ function connectTAK() {
 
   takClient.connect(takPort, takHost, () => {
     console.log(`Connected to TAK Server on ${takHost}:${takPort}`);
+    sendPing();
+    pingInterval = setInterval(sendPing, 30000); // Send ping every 30s to stay alive
   });
 }
 connectTAK();
