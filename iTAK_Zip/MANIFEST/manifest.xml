@@ -1,12 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <MissionPackageManifest version="2">
     <Configuration>
-        <Parameter name="uid" value="ARES-TAK-Secure"/>
-        <Parameter name="name" value="ARES Secure Connection"/>
-        <Parameter name="onReceiveDelete" value="false"/>
+        <Parameter name="name" value="ARES TAK SSL Connection"/>
+        <Parameter name="uid" value="ares-tak-ssl-package"/>
     </Configuration>
     <Contents>
-        <Content ignore="false" zipEntry="ARES_Secure_Connection.pref"/>
         <Content ignore="false" zipEntry="cert/admin.p12"/>
-        <Content ignore="false" zipEntry="cert/ca.pem"/>
+        <Content ignore="false" zipEntry="cert/truststore-root.p12"/>
+        <Content ignore="false" zipEntry="config.pref"/>
     </Contents>
 </MissionPackageManifest>
