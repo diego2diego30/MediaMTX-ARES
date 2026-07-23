@@ -176,16 +176,24 @@
         <div
           style="color: var(--green-mid); font-size: 13px; font-family: var(--font-system); font-weight: bold; letter-spacing: 1px;">
           DEVICE PROVISIONING</div>
-        <img
-          src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=https://ares-werx.com/ARES_Secure_Connection.zip"
-          alt="TAK Config QR Code"
-          style="border: 1px solid var(--green-dim); border-radius: 8px; padding: 5px; background: white;">
 
         <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
-          <a href="ARES_Secure_Connection.zip" class="dl-btn" style="width: 100%;">Download TLS Package
-            (Recommended)</a>
+          <div style="font-size: 11px; color: var(--green-bright); text-align: left; font-weight: bold; margin-bottom: 2px;">STEP 1: Root Trust (iOS Required)</div>
+          <a href="ares-root.crt" class="dl-btn" style="width: 100%; border-color: var(--green-bright);">Download Root Certificate</a>
+          <p style="font-size: 10px; color: #888; text-align: left; margin-top: -4px; margin-bottom: 8px; line-height: 1.3;">
+            <b>iPhone Users:</b> Tap to download, then go to <i>Settings > General > VPN & Device Management</i> to install the profile. Finally, go to <i>Settings > General > About > Certificate Trust Settings</i> and enable full trust for RootCA.
+          </p>
+
+          <div style="font-size: 11px; color: var(--green-bright); text-align: left; font-weight: bold; margin-bottom: 2px;">STEP 2: Import Server Connection</div>
+          <a href="ARES_Secure_Connection.zip" class="dl-btn" style="width: 100%;">Download TLS Package</a>
+          
+          <img
+            src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=https://ares-werx.com/ARES_Secure_Connection.zip"
+            alt="TAK Config QR Code"
+            style="border: 1px solid var(--green-dim); border-radius: 8px; padding: 5px; background: white; margin: 10px auto;">
+
           <a href="ARES_TAK_Connection.zip" class="dl-btn"
-            style="width: 100%; color: #888; border-color: #444;">Download Legacy TCP Config</a>
+            style="width: 100%; color: #888; border-color: #444; margin-top: 5px;">Download Legacy TCP Config</a>
         </div>
       </div>
 
