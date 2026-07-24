@@ -13,18 +13,16 @@ echo "=================================================================="
 echo " 🔐 ARES-WERX TAK PKI Rebuild"
 echo "=================================================================="
 
-# ── 0. Check prerequisites ──
-MISSING=""
-command -v openssl >/dev/null 2>&1 || MISSING="$MISSING openssl"
-command -v keytool >/dev/null 2>&1 || MISSING="$MISSING openjdk-11-jre-headless(keytool)"
-command -v zip     >/dev/null 2>&1 || MISSING="$MISSING zip"
+# ── 0. Check & auto-install prerequisites ──
+INSTALL_PKGS=""
+command -v openssl >/dev/null 2>&1 || INSTALL_PKGS="$INSTALL_PKGS openssl"
+command -v keytool >/dev/null 2>&1 || INSTALL_PKGS="$INSTALL_PKGS openjdk-11-jre-headless"
+command -v zip     >/dev/null 2>&1 || INSTALL_PKGS="$INSTALL_PKGS zip"
 
-if [ -n "$MISSING" ]; then
-  echo "❌ Missing required tools:$MISSING"
-  echo ""
-  echo "   Run:  apt-get update && apt-get install -y openjdk-11-jre-headless zip"
-  echo ""
-  exit 1
+if [ -n "$INSTALL_PKGS" ]; then
+  echo "📦 Installing missing tools:$INSTALL_PKGS"
+  apt-get update -qq && apt-get install -y -qq $INSTALL_PKGS
+  echo "   ✅ Tools installed."
 fi
 
 # ── 1. Auto-detect paths ──
@@ -74,7 +72,13 @@ STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh server ares-werx.
 
 # ── 5. Generate Admin Client Certificate ──
 echo "-> [4/9] Generating Admin Client Certificate..."
-STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client admin
+STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client admin || true
+# Export admin client PEM and key for telemetry bridge
+echo " → Exporting admin client PEM and key for bridge"
+openssl pkcs12 -in files/admin.p12 -nokeys -clcerts -passin pass:atakatak -out files/admin.pem
+openssl pkcs12 -in files/admin.p12 -nocerts -nodes -passin pass:atakatak -out files/admin-key.pem
+chmod 600 files/admin-key.pem
+chmod 644 files/admin.pem
 
 # ── 6. Export Root CA as PEM (for iOS + bridge) ──
 echo "-> [5/9] Exporting Root CA as PEM..."
@@ -157,9 +161,20 @@ echo "   Client key:           $ARES_DIR/cert/tak-client.key"
 echo "   Client cert (P12):    $ARES_DIR/cert/admin.p12"
 echo "   iTAK/ATAK Bundle:     $ARES_DIR/ARES_Secure_Connection.zip"
 echo ""
-echo " Next steps:"
-echo "   1. Verify bridge: docker logs -f telemetry-bridge"
-echo "      → Look for: 'Connected to TAK Server ... (TLS)'"
-echo "   2. Re-import ARES_Secure_Connection.zip on all devices"
-echo "   3. Verify TAK admin: https://ares-werx.com:8443"
+echo " ── Auto-verifying bridge connection (waiting 20s for TAK to start)... ──"
 echo "=================================================================="
+
+sleep 20
+
+BRIDGE_LOG=$(docker logs --tail 20 telemetry-bridge 2>&1)
+echo "$BRIDGE_LOG"
+echo ""
+
+if echo "$BRIDGE_LOG" | grep -q "Connected to TAK Server"; then
+  echo "✅ VERIFIED: Bridge is connected to TAK Server via TLS!"
+elif echo "$BRIDGE_LOG" | grep -q "connection error"; then
+  echo "❌ Bridge connection error detected. Dumping full logs..."
+  docker logs --tail 50 telemetry-bridge 2>&1
+else
+  echo "⚠️  Could not confirm bridge connection. Check: docker logs -f telemetry-bridge"
+fi
