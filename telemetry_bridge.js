@@ -499,10 +499,12 @@ function connectTAK() {
     const tlsOptions = {};
     if (process.env.TAK_CLIENT_CERT) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
     if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
-    if (process.env.TAK_CA_CERT) {
+    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) {
       tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
       tlsOptions.rejectUnauthorized = true;
     } else {
+      // No CA cert provided — accept self-signed (less secure fallback)
+      console.warn('[TLS] No TAK_CA_CERT provided — disabling server cert verification');
       tlsOptions.rejectUnauthorized = false;
     }
     takClient = tls.connect(takPort, takHost, tlsOptions, () => {
