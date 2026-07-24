@@ -103,8 +103,8 @@ ITAK_DIR="$ARES_DIR/Ultimate_iTAK_Zip"
 mkdir -p "$ITAK_DIR/MANIFEST"
 
 # Copy fresh certs into the package directory
-cp files/admin.p12              "$ITAK_DIR/admin.p12"
-cp files/truststore-root.p12    "$ITAK_DIR/truststore-root.p12"
+cp "$TAK_CERT_DIR/files/admin.p12"              "$ITAK_DIR/admin.p12"
+cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ITAK_DIR/truststore-root.p12"
 
 # Build the zip
 rm -f "$ARES_DIR/ARES_Secure_Connection.zip"
@@ -118,8 +118,8 @@ cd "$ARES_DIR"
 
 # Also update the simpler ARES_Secure_Connection directory
 mkdir -p "$ARES_DIR/ARES_Secure_Connection"
-cp files/admin.p12              "$ARES_DIR/ARES_Secure_Connection/"
-cp files/truststore-root.p12    "$ARES_DIR/ARES_Secure_Connection/"
+cp "$TAK_CERT_DIR/files/admin.p12"              "$ARES_DIR/ARES_Secure_Connection/"
+cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ARES_DIR/ARES_Secure_Connection/"
 
 # ── 9. Restart TAK Server to load new keystores ──
 echo "-> [8/9] Restarting TAK Server to load new keystores..."
