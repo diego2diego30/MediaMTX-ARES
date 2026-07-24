@@ -67,8 +67,11 @@ echo "-> [2/9] Generating new Root CA ('ARES-WERX Root CA')..."
 STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeRootCa.sh --ca-name "ARES-WERX Root CA"
 
 # ── 4. Generate Server Certificate ──
-echo "-> [3/9] Generating Server Certificate (ares-werx.com)..."
-STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh server ares-werx.com
+# CoreConfig.xml references "takserver.p12" so we must generate with that name.
+# Also copy as ares-werx.com.p12 for clarity.
+echo "-> [3/9] Generating Server Certificate (takserver / ares-werx.com)..."
+STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh server takserver
+cp files/takserver.p12 files/ares-werx.com.p12 2>/dev/null || true
 
 # ── 5. Generate Admin Client Certificate ──
 echo "-> [4/9] Generating Admin Client Certificate..."
