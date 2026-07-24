@@ -40,6 +40,7 @@ services:
       - TAK_CLIENT_CERT=/app/cert/tak-client.pem
       - TAK_CLIENT_KEY=/app/cert/tak-client.key
       - TAK_CA_CERT=/app/cert/truststore-root.pem
+      - TAK_TLS_SERVERNAME=ares-werx.com
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

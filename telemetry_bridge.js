@@ -507,6 +507,12 @@ function connectTAK() {
       console.warn('[TLS] No TAK_CA_CERT provided — disabling server cert verification');
       tlsOptions.rejectUnauthorized = false;
     }
+    // Allow overriding the TLS servername for hostname verification.
+    // Needed when connecting via Docker hostname (host.docker.internal)
+    // but the server cert CN is a different name (e.g. ares-werx.com).
+    if (process.env.TAK_TLS_SERVERNAME) {
+      tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
+    }
     takClient = tls.connect(takPort, takHost, tlsOptions, () => {
       console.log(`Connected to TAK Server on ${takHost}:${takPort} (TLS)`);
       sendPing();
