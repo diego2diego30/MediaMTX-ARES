@@ -251,6 +251,11 @@ function processCotData(cotArray) {
     `;
     markers[id].bindPopup(popupHtml);
 
+    // Auto-center map on first incoming TAK marker if map is still at default view
+    if (Object.keys(markers).length === 1) {
+      copMap.panTo(latlng, { animate: true, duration: 0.5 });
+    }
+
     let trackType = 'GROUND UNIT';
     if (cot.type && cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
     if (cot.type && cot.type.startsWith('b-m')) trackType = 'MARKER';
