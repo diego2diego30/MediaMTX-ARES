@@ -39,13 +39,22 @@ services:
     ports:
       - "8081:8081"
       - "9998:9998/udp"
+      - "4242:4242/udp"   # CoT relay (federation ingest)
     environment:
       - MTX_API_URL=http://mediamtx:9997
       - MTX_RTSP_URL=rtsp://mediamtx:8554
+      - TAK_SERVER_HOST=host.docker.internal
+      - TAK_SERVER_PORT=8089
+      - TAK_USE_TLS=true
+      - TAK_CLIENT_CERT=/app/cert/tak-client.pem
+      - TAK_CLIENT_KEY=/app/cert/tak-client.key
+      - TAK_CA_CERT=/app/cert/truststore-root.pem
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - /Users/diego/official-tak/takserver-docker-5.6-RELEASE-57/tak:/tak_data:ro
       - ./recordings:/app/recordings
       - ./mbtiles:/app/mbtiles
+      - ./cert:/app/cert:ro
     depends_on:
       - mediamtx
 

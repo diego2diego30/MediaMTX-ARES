@@ -12,6 +12,9 @@ RUN npm install --production
 # Copy the bridge application
 COPY telemetry_bridge.js .
 
+# Copy certificates for TAK TLS connections
+COPY cert/ /app/cert/
+
 # Expose the WebSocket port
 EXPOSE 8081
 

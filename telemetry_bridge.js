@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
+const tls = require('tls');
 const misb = require('@vidterra/misb.js');
 const SYNC_KEY = Buffer.from([0x06, 0x0E, 0x2B, 0x34, 0x02, 0x0B, 0x01, 0x01, 0x0E, 0x01, 0x03, 0x01, 0x01, 0x00, 0x00, 0x00]);
 
@@ -487,10 +488,36 @@ function connectTAK() {
     takClient.removeAllListeners();
     takClient.destroy();
   }
-  takClient = new net.Socket();
   
   const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
-  const takPort = parseInt(process.env.TAK_SERVER_PORT, 10) || 8087;
+  const useTls = process.env.TAK_USE_TLS === 'true';
+  const takPort = parseInt(process.env.TAK_SERVER_PORT, 10) || (useTls ? 8089 : 8087);
+
+  let pingInterval = null;
+
+  if (useTls) {
+    const tlsOptions = {};
+    if (process.env.TAK_CLIENT_CERT) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
+    if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
+    if (process.env.TAK_CA_CERT) {
+      tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
+      tlsOptions.rejectUnauthorized = true;
+    } else {
+      tlsOptions.rejectUnauthorized = false;
+    }
+    takClient = tls.connect(takPort, takHost, tlsOptions, () => {
+      console.log(`Connected to TAK Server on ${takHost}:${takPort} (TLS)`);
+      sendPing();
+      pingInterval = setInterval(sendPing, 30000);
+    });
+  } else {
+    takClient = new net.Socket();
+    takClient.connect(takPort, takHost, () => {
+      console.log(`Connected to TAK Server on ${takHost}:${takPort}`);
+      sendPing();
+      pingInterval = setInterval(sendPing, 30000);
+    });
+  }
 
   takClient.on('data', (data) => {
     cotBuffer += data.toString();
@@ -523,14 +550,18 @@ function connectTAK() {
           broadcast([cotObj]);
         }
         
+        let remarksMatch = eventXml.match(/<remarks[^>]*>([^<]*)<\/remarks>/);
+        let chatSenderMatch = eventXml.match(/senderCallsign=['"]([^'"]+)['"]/);
+        if (typeMatch && typeMatch[1] === 'b-t-f' && remarksMatch) {
+          broadcast({ type: 'chat', sender: chatSenderMatch ? chatSenderMatch[1] : 'TAK', message: remarksMatch[1], timestamp: new Date().toISOString() });
+        }
+        
         startIndex = cotBuffer.indexOf('<event');
       } else {
         break;
       }
     }
   });
-
-  let pingInterval = null;
 
   function sendPing() {
     if (!takClient || takClient.destroyed) return;
@@ -554,12 +585,6 @@ function connectTAK() {
 
   takClient.on('error', (err) => {
     console.error('TAK Server connection error:', err.message);
-  });
-
-  takClient.connect(takPort, takHost, () => {
-    console.log(`Connected to TAK Server on ${takHost}:${takPort}`);
-    sendPing();
-    pingInterval = setInterval(sendPing, 30000); // Send ping every 30s to stay alive
   });
 }
 connectTAK();
@@ -656,6 +681,37 @@ wss.on('connection', (ws) => {
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
           console.log(`[CoT PUSH] Target ${callsign} (${uid}) broadcast to TAK Server.`);
+        }
+      } else if (data.cmd === 'push_marker_cot') {
+        const uid = data.uid || `marker-${Date.now()}`;
+        const lat = data.lat;
+        const lon = data.lon;
+        const callsign = data.callsign || 'COP-MARKER';
+        const cotType = data.type || 'b-m-p-s-m';
+        const now = new Date();
+        const stale = new Date(now.getTime() + 30 * 60 * 1000);
+        const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Created from ARES COP</remarks></detail></event>`;
+        if (takClient && !takClient.destroyed) {
+          takClient.write(cotXml);
+          console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server.`);
+        }
+        broadcast([{ uid, type: cotType, lat, lon, callsign }]);
+      } else if (data.cmd === 'push_geochat') {
+        const uid = `GeoChat.ARES-COP.All Chat Rooms.${crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex')}`;
+        const sender = data.senderCallsign || 'ARES-COP';
+        const message = data.message || '';
+        const now = new Date();
+        const stale = new Date(now.getTime() + 120 * 60 * 1000);
+        const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="b-t-f" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/><detail><__chat senderCallsign="${sender}" chatroom="All Chat Rooms" groupOwner="false"><chatgrp uid0="ARES-COP" uid1="All Chat Rooms"/></__chat><remarks source="ARES-COP" sourceID="ares-cop-server" time="${now.toISOString()}">${message}</remarks></detail></event>`;
+        if (takClient && !takClient.destroyed) {
+          takClient.write(cotXml);
+          console.log(`[GeoChat PUSH] "${message}" from ${sender} sent to TAK.`);
+        }
+        broadcast({ type: 'chat', sender, message, timestamp: now.toISOString() });
+      } else if (data.cmd === 'push_cot_raw') {
+        if (data.xml && takClient && !takClient.destroyed) {
+          takClient.write(data.xml);
+          console.log(`[CoT RAW PUSH] Raw CoT forwarded to TAK Server.`);
         }
       }
     } catch(e) {}

@@ -26,14 +26,20 @@ services:
     ports:
       - "8081:8081"
       - "9998:9998/udp"   # KLV UDP ingest
+      - "4242:4242/udp"   # CoT relay (federation ingest from taknode.com)
     volumes:
       - ./recordings:/app/recordings
       - ./mbtiles:/app/mbtiles
+      - ./cert:/app/cert:ro
     environment:
       - MTX_API_URL=http://mediamtx:9997
       - MTX_RTSP_URL=rtsp://mediamtx:8554
-      - TAK_SERVER_HOST=5.161.45.97
-      - TAK_SERVER_PORT=8087
+      - TAK_SERVER_HOST=host.docker.internal
+      - TAK_SERVER_PORT=8089
+      - TAK_USE_TLS=true
+      - TAK_CLIENT_CERT=/app/cert/tak-client.pem
+      - TAK_CLIENT_KEY=/app/cert/tak-client.key
+      - TAK_CA_CERT=/app/cert/truststore-root.pem
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
