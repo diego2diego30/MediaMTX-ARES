@@ -75,8 +75,8 @@ echo "-> [4/9] Generating Admin Client Certificate..."
 STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client admin || true
 # Export admin client PEM and key for telemetry bridge
 echo " → Exporting admin client PEM and key for bridge"
-openssl pkcs12 -in files/admin.p12 -nokeys -clcerts -passin pass:atakatak -out files/admin.pem
-openssl pkcs12 -in files/admin.p12 -nocerts -nodes -passin pass:atakatak -out files/admin-key.pem
+openssl pkcs12 -legacy -in files/admin.p12 -nokeys -clcerts -passin pass:atakatak -out files/admin.pem
+openssl pkcs12 -legacy -in files/admin.p12 -nocerts -nodes -passin pass:atakatak -out files/admin-key.pem
 chmod 600 files/admin-key.pem
 chmod 644 files/admin.pem
 
