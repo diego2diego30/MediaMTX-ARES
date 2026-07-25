@@ -3168,6 +3168,11 @@
         try {
           const data = JSON.parse(event.data);
           
+          // Ignore non-telemetry events (CoT arrays, tak_status, chat messages, etc.)
+          if (Array.isArray(data) || !data || typeof data !== 'object') return;
+          if (data.type === 'tak_status' || data.type === 'chat') return;
+          if (data.lat === undefined || data.lon === undefined) return;
+          
           // Only show telemetry for the currently selected video feed
           let isActiveStream = false;
           if (currentMainFeed && currentMainFeed.label) {
@@ -3179,19 +3184,23 @@
           }
           if (!isActiveStream) return;
 
+          const formatDegree = val => (val !== undefined && val !== null) ? val + '°' : '--°';
+          const formatMeters = val => (val !== undefined && val !== null) ? val + ' m' : '-- m';
+          const formatVal = val => (val !== undefined && val !== null) ? val : '--';
+
           // Update HUD
-          document.getElementById('hud-lat').textContent = data.lat;
-          document.getElementById('hud-lon').textContent = data.lon;
-          document.getElementById('hud-alt').textContent = data.alt + ' m';
-          document.getElementById('hud-hdg').textContent = data.hdg + '°';
-          document.getElementById('hud-pitch').textContent = data.pitch + '°';
-          document.getElementById('hud-roll').textContent = data.roll + '°';
+          document.getElementById('hud-lat').textContent = formatVal(data.lat);
+          document.getElementById('hud-lon').textContent = formatVal(data.lon);
+          document.getElementById('hud-alt').textContent = formatMeters(data.alt);
+          document.getElementById('hud-hdg').textContent = formatDegree(data.hdg);
+          document.getElementById('hud-pitch').textContent = formatDegree(data.pitch);
+          document.getElementById('hud-roll').textContent = formatDegree(data.roll);
 
           // Update Sidebar
-          document.getElementById('sb-lat').textContent = data.lat;
-          document.getElementById('sb-lon').textContent = data.lon;
-          document.getElementById('sb-alt').textContent = data.alt;
-          document.getElementById('sb-hdg').textContent = data.hdg + '°';
+          document.getElementById('sb-lat').textContent = formatVal(data.lat);
+          document.getElementById('sb-lon').textContent = formatVal(data.lon);
+          document.getElementById('sb-alt').textContent = formatVal(data.alt);
+          document.getElementById('sb-hdg').textContent = formatDegree(data.hdg);
 
           // Update Map
           if (copMapActive && copMap && copMarker) {
