@@ -524,12 +524,9 @@ function connectTAK() {
     if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
     if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) {
       tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
-      tlsOptions.rejectUnauthorized = true;
-    } else {
-      // No CA cert provided — accept self-signed (less secure fallback)
-      console.warn('[TLS] No TAK_CA_CERT provided — disabling server cert verification');
-      tlsOptions.rejectUnauthorized = false;
     }
+    // Default to false for self-signed TAK Server certificates unless explicitly set to true
+    tlsOptions.rejectUnauthorized = process.env.TAK_REJECT_UNAUTHORIZED === 'true';
     // Allow overriding the TLS servername for hostname verification.
     // Needed when connecting via Docker hostname (host.docker.internal)
     // but the server cert CN is a different name (e.g. ares-werx.com).
