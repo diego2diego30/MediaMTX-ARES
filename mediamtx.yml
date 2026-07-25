@@ -58,6 +58,6 @@ authInternalUsers:
 # Stream paths
 paths:
   demo:
-    runOnInit: ffmpeg -re -stream_loop -1 -fflags +genpts -i /DayFlight.ts -map 0:v -c:v libx264 -preset ultrafast -tune zerolatency -bf 0 -g 60 -map 0:d? -c:d copy -f mpegts 'srt://127.0.0.1:8890?streamid=publish:demo'
+    runOnInit: ffmpeg -re -stream_loop -1 -fflags +genpts -i /DayFlight.ts -map 0:v -c:v libx264 -preset ultrafast -tune zerolatency -bf 0 -g 60 -map 0:d? -c:d copy -f mpegts 'srt://127.0.0.1:8890?streamid=publish:demo' -map 0:d? -c:d copy -f rawvideo 'udp://telemetry-bridge:9998'
     runOnInitRestart: yes
   all:
