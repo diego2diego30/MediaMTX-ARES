@@ -655,12 +655,12 @@ function connectTAK() {
     const now = new Date();
     const stale = new Date(now.getTime() + 60000);
     const pingXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<event version="2.0" uid="ares-cop-server" type="a-f-G-U-C" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o">
+<event version="2.0" uid="ARES-WERX-COP" type="a-f-G-U-C" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o">
   <point lat="0.0" lon="0.0" hae="0.0" ce="9999999.0" le="9999999.0"/>
   <detail>
-    <uid Droid="ARES-COP"/>
-    <contact callsign="ARES-COP" endpoint="*:-1:stcp"/>
-    <takv device="Web App" platform="ARES-COP" os="Linux" version="1.0"/>
+    <uid Droid="ARES COP"/>
+    <contact callsign="ARES COP" endpoint="*:-1:stcp"/>
+    <takv device="Web App" platform="ARES COP" os="Linux" version="1.0"/>
   </detail>
 </event>`;
     takClient.write(pingXml);
@@ -838,7 +838,7 @@ wss.on('connection', (ws) => {
         // Broadcast back to clients so they know it was sent successfully
         broadcast([{ uid, type: cotType, lat, lon, callsign }]);
       } else if (data.cmd === 'push_geochat') {
-        const sender = data.senderCallsign || 'ARES-COP';
+        const sender = data.senderCallsign || 'ARES COP';
         const message = data.message || '';
         const recipientUid = data.recipientUid || 'All Chat Rooms';
         const recipientCallsign = data.recipientCallsign || 'All Chat Rooms';
