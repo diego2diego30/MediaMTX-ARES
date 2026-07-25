@@ -848,10 +848,12 @@ wss.on('connection', (ws) => {
         const message = data.message || '';
         const recipientUid = data.recipientUid || 'All Chat Rooms';
         const recipientCallsign = data.recipientCallsign || 'All Chat Rooms';
-        const uid = `GeoChat.${sender}.${recipientUid}.${crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex')}`;
+        const senderUid = 'ARES-WERX-COP';
+        const msgId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex');
+        const uid = `GeoChat.${senderUid}.${recipientUid}.${msgId}`;
         const now = new Date();
         const stale = new Date(now.getTime() + 120 * 60 * 1000);
-        const cotXml = `<event version="2.0" uid="${uid}" type="b-t-f" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/><detail><__chat senderCallsign="${sender}" chatroom="${recipientCallsign}" groupOwner="false"><chatgrp uid0="${sender}" uid1="${recipientUid}" id="${recipientCallsign}"/></__chat><link uid="${sender}" type="a-f-G-U-C" relation="p-p"/><remarks source="${sender}" to="${recipientUid}" time="${now.toISOString()}">${message}</remarks></detail></event>`;
+        const cotXml = `<event version="2.0" uid="${uid}" type="b-t-f" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/><detail><__chat parent="RootContactGroup" groupOwner="false" messageId="${msgId}" chatroom="${recipientCallsign}" id="${recipientUid}" senderCallsign="${sender}"><chatgrp uid0="${senderUid}" uid1="${recipientUid}" id="${recipientUid}"/></__chat><link uid="${senderUid}" type="a-f-G-U-C" relation="p-p"/><remarks source="BAO.F.ATAK.${senderUid}" to="${recipientUid}" time="${now.toISOString()}">${message}</remarks></detail></event>`;
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
           console.log(`[GeoChat PUSH] "${message}" from ${sender} to ${recipientCallsign} sent to TAK.`);

@@ -488,12 +488,26 @@ function appendChatMessage(sender, message, timestamp, isSelf) {
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
 
-  // Badge when panel is closed
-  if (!chatOpen) {
+  // Badge and Toast when panel is closed
+  if (!chatOpen && !isSelf) {
     chatUnread++;
     const badge = document.getElementById('chat-badge');
     if (badge) { badge.textContent = chatUnread; badge.style.display = 'inline-flex'; }
+    showToast(sender, message);
   }
+}
+
+function showToast(sender, message) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast-msg';
+  toast.innerHTML = `<div class="toast-sender">💬 ${escapeHtml(sender)}</div><div class="toast-text">${escapeHtml(message)}</div>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'slideDown 0.3s ease reverse forwards';
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+  }, 5000);
 }
 
 function escapeHtml(str) {

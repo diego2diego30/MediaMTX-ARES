@@ -470,3 +470,39 @@ body, html {
   color: red !important;
   text-shadow: 0 0 5px darkred !important;
 }
+/* ── Toast Notifications ── */
+.toast-container {
+  position: absolute;
+  top: 70px;
+  right: 50%;
+  transform: translateX(50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.toast-msg {
+  background: rgba(5, 5, 5, 0.95);
+  border: 1px solid var(--green-bright);
+  border-left: 4px solid var(--green-bright);
+  color: var(--green-bright);
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  box-shadow: 0 4px 15px rgba(0, 255, 94, 0.3);
+  animation: slideDown 0.3s ease forwards;
+  max-width: 300px;
+  pointer-events: auto;
+}
+.toast-msg .toast-sender {
+  font-weight: bold;
+  font-family: var(--font-header);
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
