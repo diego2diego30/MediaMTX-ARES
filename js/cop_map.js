@@ -28,9 +28,13 @@ const EMERGENCY_ICON = L.divIcon({
 });
 
 // ── Color helper: signed 32-bit ARGB int → CSS rgba ───────────────
-function argbToCss(argbInt, alphaOverride) {
+function argbToCss(argbInt, alphaOverride, isFill = false) {
   const u = (argbInt >>> 0);
-  const a = alphaOverride !== undefined ? alphaOverride : ((u >> 24) & 0xff) / 255;
+  let extractedAlpha = ((u >> 24) & 0xff) / 255;
+  let a = alphaOverride !== undefined ? alphaOverride : extractedAlpha;
+  if (isFill && extractedAlpha < 0.1) {
+    a = 0.35;
+  }
   const r = (u >> 16) & 0xff;
   const g = (u >> 8)  & 0xff;
   const b = u & 0xff;
@@ -40,9 +44,10 @@ function argbToCss(argbInt, alphaOverride) {
 // ── Default shape style ────────────────────────────────────────────
 function shapeStyle(cot) {
   const stroke = cot.strokeColor !== undefined ? argbToCss(cot.strokeColor) : '#00ff5e';
-  const fill   = cot.fillColor   !== undefined ? argbToCss(cot.fillColor, 0.15) : 'rgba(0,255,94,0.10)';
-  const weight = cot.strokeWeight || 2;
-  return { color: stroke, fillColor: fill, fillOpacity: 0.15, weight, opacity: 0.85, className: 'tak-shape' };
+  const fill   = cot.fillColor   !== undefined ? argbToCss(cot.fillColor, undefined, true) : 'rgba(0,255,94,0.35)';
+  let weight = cot.strokeWeight !== undefined ? cot.strokeWeight : 2.5;
+  if (weight < 2.5) weight = 2.5;
+  return { color: stroke, fillColor: fill, fillOpacity: 0.35, weight, opacity: 0.85, className: 'tak-shape' };
 }
 
 // ── Popup builder ──────────────────────────────────────────────────
@@ -152,14 +157,17 @@ function initCopMap() {
     
     if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
       wsTelemetry.send(JSON.stringify(payload));
-      alert('Broadcasted to TAK Server!');
+      showCopAlert('Broadcasted to TAK Server!');
     } else {
-      alert('Cannot broadcast: Telemetry disconnected.');
+      showCopAlert('Cannot broadcast: WebSocket disconnected.', 'error');
     }
   };
 
   // Stale shape cleanup every 30s
-  setInterval(pruneStaleShapes, 30000);
+  setInterval(() => {
+    pruneStaleShapes();
+    pruneStaleMarkers();
+  }, 30000);
 }
 
 // ── Telemetry WebSocket ───────────────────────────────────────────
@@ -269,13 +277,26 @@ function processPointCot(cot) {
   const id = cot.uid;
   const latlng = [cot.lat, cot.lon];
   const sidc = cotToSidc(cot.type);
-  const sym = new ms.Symbol(sidc, { size: 25 });
-  const symIcon = L.divIcon({
-    className: '',
-    html: sym.asSVG(),
-    iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
-    popupAnchor: [0, -sym.getAnchor().y]
-  });
+  let symIcon;
+  try {
+    const sym = new ms.Symbol(sidc, { size: 25 });
+    const svgHtml = sym.asSVG();
+    if (!svgHtml) throw new Error("empty SVG");
+    symIcon = L.divIcon({
+      className: '',
+      html: svgHtml,
+      iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
+      popupAnchor: [0, -sym.getAnchor().y]
+    });
+  } catch (e) {
+    symIcon = L.divIcon({
+      className: '',
+      html: '<div style="width:16px;height:16px;background:#00ff5e;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px #00ff5e;"></div>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+      popupAnchor: [0, -10]
+    });
+  }
   if (!markers[id]) {
     markers[id] = L.marker(latlng, { icon: symIcon }).addTo(copMap);
     markers[id].bindTooltip(cot.callsign, { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tactical-map-label' });
@@ -283,12 +304,15 @@ function processPointCot(cot) {
     markers[id].setLatLng(latlng);
     markers[id].setIcon(symIcon);
   }
-  markers[id].bindPopup(buildPopup(cot.callsign, [
+  let popupRows = [
     ['TYPE', cot.type],
     ['LAT',  cot.lat.toFixed(5)],
-    ['LON',  cot.lon.toFixed(5)],
-    ...(cot.remarks ? [['NOTE', cot.remarks]] : [])
-  ]));
+    ['LON',  cot.lon.toFixed(5)]
+  ];
+  if (cot.remarks) popupRows.push(['NOTE', cot.remarks]);
+  if (cot.imageUrl) popupRows.push(['IMG', '<img src="' + cot.imageUrl + '" style="max-width:120px;max-height:80px;border:1px solid #00ff5e;" />']);
+  
+  markers[id].bindPopup(buildPopup(cot.callsign, popupRows));
   if (Object.keys(markers).length === 1 && Object.keys(shapeOverlays).length === 0) {
     copMap.panTo(latlng, { animate: true });
   }
@@ -315,6 +339,11 @@ function processShapeCot(cot) {
     trackType = 'CIRCLE';
     layer.bindPopup(buildPopup(label, [['TYPE', 'Circle'], ['RADIUS', `${cot.ellipse.major.toFixed(0)} m`], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
+  } else if (cot.type === 'u-d-r' && cot.vertices && cot.vertices.length >= 3) {
+    layer = L.polygon(cot.vertices.map(v => [v.lat, v.lon]), style);
+    trackType = 'RECTANGLE';
+    layer.bindPopup(buildPopup(label, [['TYPE', 'Rectangle'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+
   } else if (cot.type === 'u-d-r' && cot.ellipse) {
     // Rectangle — compute corners from center + half-dimensions + bearing
     const corners = rectCorners(cot.lat, cot.lon, cot.ellipse.major, cot.ellipse.minor, cot.ellipse.angle);
@@ -322,10 +351,10 @@ function processShapeCot(cot) {
     trackType = 'RECTANGLE';
     layer.bindPopup(buildPopup(label, [['TYPE', 'Rectangle'], ['LENGTH', `${cot.ellipse.major.toFixed(0)} m`], ['WIDTH', `${cot.ellipse.minor.toFixed(0)} m`], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
-  } else if ((cot.type === 'u-d-p' || cot.type === 'u-d-r') && cot.vertices && cot.vertices.length >= 3) {
+  } else if (cot.type === 'u-d-p' && cot.vertices && cot.vertices.length >= 3) {
     layer = L.polygon(cot.vertices.map(v => [v.lat, v.lon]), style);
-    trackType = cot.type === 'u-d-r' ? 'RECTANGLE' : 'POLYGON';
-    layer.bindPopup(buildPopup(label, [['TYPE', trackType === 'RECTANGLE' ? 'Rectangle' : 'Polygon'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+    trackType = 'POLYGON';
+    layer.bindPopup(buildPopup(label, [['TYPE', 'Polygon'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
   } else if (cot.type === 'u-d-f' && cot.vertices && cot.vertices.length >= 2) {
     layer = L.polyline(cot.vertices.map(v => [v.lat, v.lon]), style);
@@ -378,7 +407,7 @@ function processEmergencyCot(cot) {
   if (baseCallsign.includes('.')) baseCallsign = baseCallsign.split('.')[0];
   
   const id = 'EMG-' + baseId;
-  const isCancel = cot.type.endsWith('-k') || cot.type === 'b-a-o-c' || (cot.callsign || '').toLowerCase().includes('cancel');
+  const isCancel = cot.type.endsWith('-k') || cot.type === 'b-a-o-c' || (cot.callsign || '').toLowerCase().includes('cancel') || cot.type.toLowerCase().endsWith('-cancel');
 
   if (isCancel) {
     if (markers[id]) {
@@ -398,7 +427,8 @@ function processEmergencyCot(cot) {
     markers[id].setLatLng(latlng);
   }
   markers[id].bindPopup(buildPopup('⚠ EMERGENCY', [['CALLSIGN', baseCallsign], ['STATUS', cot.callsign], ['LAT', cot.lat.toFixed(5)], ['LON', cot.lon.toFixed(5)]]));
-  window.trackData[id] = { id, callsign: baseCallsign, lat: cot.lat, lon: cot.lon, type: 'EMERGENCY' };
+  window.trackData[id] = { id, callsign: baseCallsign, lat: cot.lat, lon: cot.lon, type: 'EMERGENCY', stale: cot.stale };
+  pruneStaleMarkers();
 }
 
 // ── Rectangle corner calculator (great-circle) ────────────────────
@@ -427,10 +457,25 @@ function pruneStaleShapes() {
   const now = Date.now();
   Object.entries(shapeOverlays).forEach(([id, layer]) => {
     const td = window.trackData[id];
-    if (td && td.stale && new Date(td.stale).getTime() < now) {
+    if (td && td.stale && new Date(td.stale).getTime() < now - 300000) {
       copMap.removeLayer(layer);
       delete shapeOverlays[id];
       delete window.trackData[id];
+    }
+  });
+}
+
+function pruneStaleMarkers() {
+  const now = Date.now();
+  Object.entries(markers).forEach(([id, marker]) => {
+    const td = window.trackData[id];
+    if (td && td.stale && new Date(td.stale).getTime() < now - 5000) {
+      // Give 5 second grace for very recent stales
+      if (id.startsWith('EMG-')) {
+        copMap.removeLayer(marker);
+        delete markers[id];
+        delete window.trackData[id];
+      }
     }
   });
 }
@@ -524,6 +569,21 @@ function appendChatMessage(sender, message, timestamp, isSelf, chatroom = 'All C
     if (badge) { badge.textContent = chatUnread; badge.style.display = 'inline-flex'; }
     showToast(sender, message);
   }
+}
+
+function showCopAlert(msg, type = 'success') {
+  const container = document.getElementById('toast-container');
+  if (!container) { console.warn(msg); return; }
+  const toast = document.createElement('div');
+  const colors = { success: 'var(--green-bright)', error: '#ff4444', warn: '#ffcc00', info: '#00ccff' };
+  const borderColor = colors[type] || colors.success;
+  toast.style.cssText = `background:rgba(5,5,5,0.95);border:1px solid ${borderColor};border-left:4px solid ${borderColor};color:${borderColor};padding:10px 20px;border-radius:4px;font-family:var(--font-mono);font-size:13px;box-shadow:0 4px 15px rgba(0,255,94,0.3);animation:slideDown 0.3s ease forwards;max-width:320px;pointer-events:auto;`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'slideDown 0.3s ease reverse forwards';
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+  }, 4000);
 }
 
 function showToast(sender, message) {
@@ -705,9 +765,9 @@ window.handleMapUpload = async function(event) {
   try {
     const res = await fetch(`/api/upload_map?filename=${encodeURIComponent(file.name)}`, { method:'POST', body:file });
     if (res.ok) {
-      alert('Map uploaded successfully!');
+      showCopAlert('Map uploaded successfully!');
       copMap.eachLayer(l => { if (l._url && l._url.includes('/tiles/')) l.redraw(); });
-    } else { alert('Failed to upload map.'); }
-  } catch(e) { console.error(e); alert('Map upload error.'); }
+    } else { showCopAlert('Failed to upload map.', 'error'); }
+  } catch(e) { console.error(e); showCopAlert('Map upload error.', 'error'); }
   finally { btn.innerHTML = '📁 UPLOAD MBTILES'; btn.disabled = false; event.target.value = ''; }
 };
