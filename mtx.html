@@ -1940,6 +1940,10 @@
       accent-color: var(--green-bright);
       margin-right: 6px;
     }
+    
+    .leaflet-bar, .leaflet-control-layers-toggle {
+      filter: invert(0.9) sepia(0.2) hue-rotate(80deg) saturate(2) brightness(1.2);
+    }
   </style>
 </head>
 
@@ -2099,7 +2103,7 @@
           <!-- <span class="viewer-src" id="viewer-src"></span> -->
           <div class="viewer-actions">
             <button id="refresh-main-btn" onclick="refreshMainVideo()" title="Refresh Main Video"
-              style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
+              style="background: #000; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
               <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"
                 stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="23 4 23 10 17 10"></polyline>
@@ -2107,19 +2111,19 @@
               </svg>
             </button>
             <button id="record-main-btn" onclick="toggleRecord()" title="Record Stream"
-              style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--red-alert); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
+              style="background: #000; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--red-alert); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
                 <circle cx="12" cy="12" r="8"></circle>
               </svg>
             </button>
             <button id="view-recordings-btn" onclick="openRecordingsModal()" title="View Recordings"
-              style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
+              style="background: #000; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
               <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
               </svg>
             </button>
             <button id="recenter-map-btn" onclick="recenterMap()" title="Center Map on Feed"
-              style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; margin-left: 5px;">
+              style="background: #000; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
               <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle>
               </svg>
