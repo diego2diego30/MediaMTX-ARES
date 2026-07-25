@@ -488,8 +488,11 @@ klvSocket.on('message', (msg) => {
            const cotHdg = hdg ? parseFloat(hdg.toFixed(1)) : 0;
            const cotSpeed = 0;
 
-           const videoUrl = `https://ares-werx.com/${streamId}/index.m3u8`;
-           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q-r" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="raw:rtsp" address="ares-werx.com" port="8554" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+           const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
+           const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
+           const hlsBase = process.env.PUBLIC_HLS_BASE || `https://${publicHost}`;
+           const videoUrl = `${hlsBase}/${streamId}/index.m3u8`;
+           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q-r" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
            takClient.write(cotXml);
            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
@@ -790,14 +793,33 @@ function broadcastVideoAliasCots() {
           const stale = new Date(now.getTime() + 120000); // 2 min stale
           
           // Use HLS URL since iTAK supports it natively over HTTPS
-          const videoUrl = `${hlsBase}/${name}/index.m3u8`;
+          const hlsUrl = `${hlsBase}/${name}/index.m3u8`;
+          
+          let lat = 34.665;
+          let lon = -77.55;
+          const uasCot = cotCache.get(`mtx-uas-${name}`);
+          if (uasCot && uasCot.lat !== undefined) { lat = uasCot.lat; lon = uasCot.lon; }
+
+          const markerUid = `mtx-marker-${name}`;
+          const markerXml = `<event version="2.0" uid="${markerUid}" type="a-f-A-M-F-Q-r" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
+<point lat="${lat}" lon="${lon}" hae="50" ce="10" le="10"/>
+<detail>
+  <uid Droid="${callsign}"/>
+  <contact callsign="${callsign}"/>
+  <__video url="${hlsUrl}" uid="${markerUid}" urlAlias="${callsign}">
+    <ConnectionEntry networkTimeout="12000" uid="${markerUid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
+  </__video>
+  <sensor azimuth="0" fov="60" range="500" vfov="45" model="MediaMTX-Stream"/>
+  <remarks>Live Stream Map Marker (${name})</remarks>
+</detail>
+</event>`;
           
           const cotXml = `<event version="2.0" uid="${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
 <point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/>
 <detail>
   <uid Droid="${callsign}"/>
   <contact callsign="${callsign}"/>
-  <__video url="${videoUrl}" uid="${uid}" urlAlias="${callsign}">
+  <__video url="${hlsUrl}" uid="${uid}" urlAlias="${callsign}">
     <ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
   </__video>
   <remarks>ARES MediaMTX Video Feed (${name})</remarks>
@@ -805,8 +827,9 @@ function broadcastVideoAliasCots() {
 </event>`;
           
           if (takClient && !takClient.destroyed) {
+            takClient.write(markerXml);
             takClient.write(cotXml);
-            console.log(`[VideoCoT] Pushed ${callsign} to TAK Server`);
+            console.log(`[VideoCoT] Pushed map marker and feed for ${callsign} to TAK Server`);
           }
         });
       } catch(e) { console.error('VideoAlias CoT error:', e); }

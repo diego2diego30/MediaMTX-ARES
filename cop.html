@@ -71,6 +71,28 @@
     </div>
     
     <div class="sidebar-section">
+      <h3>DATA SYNC MISSIONS (TAK SPEC)</h3>
+      <div style="padding: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--green-bright);">
+        <label>ACTIVE MISSION:<br>
+          <select id="datasync-mission-sel" style="width:100%; background:#000; color:#fff; border:1px solid var(--green-dim); margin-top:4px; padding:4px;">
+            <option value="Local Tactical Mission">Local Tactical Mission</option>
+            <option value="ARES Op Package Alpha">ARES Op Package Alpha</option>
+            <option value="Default TAK Mission">Default TAK Mission</option>
+          </select>
+        </label>
+        <div style="margin-top: 8px;">
+          <label style="cursor:pointer; display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" id="datasync-local-mode" checked> Save Points to Local Mission Only (Do Not Auto-Broadcast)
+          </label>
+        </div>
+        <div id="datasync-items-list" style="margin-top: 10px; max-height: 100px; overflow-y: auto; border: 1px solid var(--green-dim); padding: 4px; font-size: 11px; color: #aaa;">
+          <div style="font-style:italic;">No local mission items yet.</div>
+        </div>
+        <button onclick="window.broadcastDataSyncMission()" style="margin-top:8px; background:var(--green-bright); color:#000; border:none; padding:6px; width:100%; font-weight:bold; cursor:pointer;">📡 SYNC / BROADCAST MISSION TO TAK</button>
+      </div>
+    </div>
+    
+    <div class="sidebar-section">
       <h3>INPUT MAP FILES</h3>
       <div class="control-row" style="text-align: center; margin-top: 10px;">
         <input type="file" id="map-upload-input" accept=".mbtiles" style="display: none;" onchange="handleMapUpload(event)">

@@ -14,6 +14,7 @@ let chatUnread = 0;
 let chatOpen = false;
 window.allChatMessages = []; // Task 3 master array
 const chatLogs = {};
+window.localMissionItems = [];
 
 
 // ── Icons ─────────────────────────────────────────────────────────
@@ -181,26 +182,120 @@ function initCopMap() {
     window.drawnShapes = window.drawnShapes || {};
     window.drawnShapes[layer._copId] = { layer, type: e.layerType };
     
-    const popupContent = `
-      <div style="font-family: var(--font-main);">
-        <strong style="color:var(--green-bright)">Drawn ${e.layerType.toUpperCase()}</strong><br>
-        <div style="margin-top:10px;border-top:1px solid var(--green-dim);padding-top:8px;">
-          <label style="color:var(--green-bright);font-size:11px;">COLOR: <select id="edit-color-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="#00ff5e">Green</option><option value="#ff4444">Red</option><option value="#00ccff">Cyan</option><option value="#ffcc00">Yellow</option><option value="#ff00ff">Magenta</option><option value="#ffffff">White</option></select></label><br>
-          <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
-          <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
-          <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+    if (e.layerType === 'marker') {
+      const defaultName = `Target-${Date.now().toString().slice(-4)}`;
+      const popupContent = `
+        <div style="font-family: var(--font-main); min-width: 220px;">
+          <strong style="color:var(--green-bright)">NEW TACTICAL MARKER</strong><br>
+          <div style="margin-top:10px;border-top:1px solid var(--green-dim);padding-top:8px;">
+            <label style="color:var(--green-bright);font-size:11px;">NAME / CALLSIGN: 
+              <input type="text" id="edit-marker-name-${layer._copId}" value="${defaultName}" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;width:100%;padding:2px;margin-top:2px;margin-bottom:6px;">
+            </label><br>
+            <label style="color:var(--green-bright);font-size:11px;">TAK SUPPORTED MARKER TYPE: 
+              <select id="edit-marker-type-${layer._copId}" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;width:100%;padding:2px;margin-top:2px;margin-bottom:6px;">
+                <option value="a-f-G-U-C-I">Friendly Infantry</option>
+                <option value="a-f-G-U-C-A">Friendly Armor / Mech</option>
+                <option value="a-f-G-U-C-M">Friendly Medical</option>
+                <option value="a-f-G-U-C-HQ">Friendly HQ / Command</option>
+                <option value="a-f-A-M-H">Friendly Rotary Wing / Helicopter</option>
+                <option value="a-f-A-M-F">Friendly Fixed Wing / Plane</option>
+                <option value="a-h-G-U-C">Hostile Ground Unit</option>
+                <option value="a-h-G-U-C-A">Hostile Armor</option>
+                <option value="a-n-G-U-C-M">Neutral Medical / Civ</option>
+                <option value="a-u-A-M-F-Q">Unknown Drone / UAS</option>
+                <option value="b-m-p-s-m">Standard Point Marker</option>
+              </select>
+            </label><br>
+            <button onclick="window.broadcastCustomMarker('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 BROADCAST MARKER TO TAK</button>
+          </div>
         </div>
-      </div>
-    `;
-    layer.bindPopup(popupContent).openPopup();
+      `;
+      layer.bindPopup(popupContent).openPopup();
+    } else {
+      const popupContent = `
+        <div style="font-family: var(--font-main);">
+          <strong style="color:var(--green-bright)">Drawn ${e.layerType.toUpperCase()}</strong><br>
+          <div style="margin-top:10px;border-top:1px solid var(--green-dim);padding-top:8px;">
+            <label style="color:var(--green-bright);font-size:11px;">NAME: <input type="text" id="edit-name-${layer._copId}" value="${layer._copId}" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;width:120px;padding:2px;"></label><br>
+            <label style="color:var(--green-bright);font-size:11px;">COLOR: <select id="edit-color-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="#00ff5e">Green</option><option value="#ff4444">Red</option><option value="#00ccff">Cyan</option><option value="#ffcc00">Yellow</option><option value="#ff00ff">Magenta</option><option value="#ffffff">White</option></select></label><br>
+            <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
+            <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
+            <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+          </div>
+        </div>
+      `;
+      layer.bindPopup(popupContent).openPopup();
+    }
   });
+
+  window.broadcastCustomMarker = function(id) {
+    if (!window.drawnShapes || !window.drawnShapes[id]) return;
+    const item = window.drawnShapes[id];
+    const layer = item.layer;
+    
+    const nameInput = document.getElementById('edit-marker-name-' + id);
+    const typeSelect = document.getElementById('edit-marker-type-' + id);
+    if (!nameInput || !typeSelect) return;
+    
+    const name = nameInput.value;
+    const cotType = typeSelect.value;
+    
+    if (typeof cotToSidc === 'function') {
+      const sidc = cotToSidc(cotType);
+      const sym = new ms.Symbol(sidc, { size: 25 });
+      const iconObj = L.divIcon({
+        className: 'tak-marker-icon',
+        html: sym.asSVG(),
+        iconSize: [sym.getSize().width, sym.getSize().height],
+        iconAnchor: [sym.getAnchor().x, sym.getAnchor().y]
+      });
+      layer.setIcon(iconObj);
+    }
+    
+    layer.bindTooltip(name, { direction: 'top', className: 'tak-marker-tooltip', permanent: true });
+    layer.closePopup();
+    
+    window.trackData = window.trackData || {};
+    window.trackData[id] = window.trackData[id] || {};
+    window.trackData[id].callsign = name;
+    window.trackData[id].type = cotType;
+    
+    if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+      wsTelemetry.send(JSON.stringify({ 
+        cmd: 'push_marker_cot', 
+        uid: id, 
+        callsign: name, 
+        lat: layer.getLatLng().lat, 
+        lon: layer.getLatLng().lng, 
+        type: cotType 
+      }));
+      if (typeof showTacticalBanner === 'function') {
+        showTacticalBanner('📡 BROADCASTED ' + name + ' TO TAK');
+      } else {
+        showCopAlert('📡 BROADCASTED ' + name + ' TO TAK');
+      }
+    } else {
+      showCopAlert('Cannot broadcast: WebSocket disconnected.', 'error');
+    }
+  };
 
   window.broadcastShape = function(id) {
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
     const item = window.drawnShapes[id];
     const layer = item.layer;
     
-    let payload = { cmd: 'push_shape_cot', uid: id, callsign: id };
+    const nameInput = document.getElementById('edit-name-' + id);
+    const customName = nameInput ? nameInput.value : id;
+    
+    if (layer.bindTooltip && item.type !== 'marker') {
+      layer.bindTooltip(customName, { permanent: true, direction: 'center', className: 'tak-shape-tooltip' });
+    }
+    
+    window.trackData = window.trackData || {};
+    window.trackData[id] = window.trackData[id] || {};
+    window.trackData[id].callsign = customName;
+    
+    let payload = { cmd: 'push_shape_cot', uid: id, callsign: customName };
     
     const td = window.trackData && window.trackData[id];
     if (td && td.customStyle) {
@@ -245,6 +340,17 @@ function initCopMap() {
     pruneStaleMarkers();
   }, 30000);
 }
+
+window.broadcastDataSyncMission = function() {
+  if (!window.localMissionItems || window.localMissionItems.length === 0) return;
+  window.localMissionItems.forEach(item => {
+    if (window.broadcastShape) {
+      window.broadcastShape(item.id);
+    }
+  });
+  showTacticalBanner('📡 BROADCASTED ' + window.localMissionItems.length + ' MISSION ITEMS TO TAK');
+};
+
 
 // ── Telemetry WebSocket ───────────────────────────────────────────
 function connectTelemetry() {
@@ -617,10 +723,11 @@ function renderChatLog(selectedView) {
   log.innerHTML = '';
   
   const msgs = window.allChatMessages.filter(msg => {
-    if (selectedView === 'All Chat Rooms') return true;
-    const isBroadcast = msg.chatroom === 'All Chat Rooms' || !msg.to;
+    if (selectedView === 'All Chat Rooms' || selectedView === 'All Chat Rooms (Broadcast)') {
+      return msg.chatroom === 'All Chat Rooms' || !msg.to;
+    }
     const isRelated = msg.sender === selectedView || msg.to === selectedView || msg.chatroom === selectedView;
-    return isBroadcast || isRelated;
+    return isRelated;
   });
 
   msgs.forEach(({sender, message, timestamp, isSelf}) => {
@@ -779,7 +886,13 @@ window.addEventListener('DOMContentLoaded', () => {
       !t.id.startsWith('klv-drone') &&
       !t.id.startsWith('EMG-') &&
       !t.id.startsWith('COP-Shape') &&
-      !t.id.startsWith('unit-') // exclude demo simulation units
+      !t.id.startsWith('unit-') &&
+      t.callsign !== window.copCallsign &&
+      t.callsign !== 'ARES-WERX-COP' &&
+      t.callsign !== 'ARES COP' &&
+      t.callsign !== 'TAK-Server' &&
+      !t.callsign.includes('-') && // Exclude UUID strings that got assigned as callsigns
+      t.callsign !== t.id
     );
     
     let html = `<option value="All Chat Rooms" data-uid="All Chat Rooms">All Chat Rooms (Broadcast)</option>`;
