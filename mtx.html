@@ -3202,7 +3202,13 @@
           L.control.layers(baseMaps, null, { position: 'bottomleft' }).addTo(copMap);
 
           const initialCallsign = (currentMainFeed && currentMainFeed.label) ? currentMainFeed.label : 'DEMO';
-          copMarker = createAresCopMarker([38.9871, -76.4739], initialCallsign).addTo(copMap).bindPopup('Awaiting Telemetry...');
+          const initialPopup = `
+            <div style="line-height: 1.5; letter-spacing: 0.5px;">
+              <strong style="color:#fff;">FEED:</strong> ${initialCallsign}<br>
+              <strong style="color:#fff;">STATUS:</strong> <span style="color:#ffcc00; font-weight:bold;">AWAITING TELEMETRY...</span>
+            </div>
+          `;
+          copMarker = createAresCopMarker([38.9871, -76.4739], initialCallsign).addTo(copMap).bindPopup(initialPopup);
         }
         
         // Trigger a resize so Leaflet knows its new container size
@@ -3263,13 +3269,13 @@
           if (data.type === 'tak_status' || data.type === 'chat') return;
           if (data.lat === undefined || data.lon === undefined) return;
           
-          // Only show telemetry for the currently selected video feed
-          let isActiveStream = false;
+          // Show telemetry if stream matches or if default simulation active
+          let isActiveStream = true;
           if (currentMainFeed && currentMainFeed.label) {
             const currentName = currentMainFeed.label.toLowerCase();
             const dataStreamId = (data.stream_id || 'demo').toLowerCase();
-            if (dataStreamId === currentName) {
-              isActiveStream = true;
+            if (dataStreamId !== 'demo' && !currentName.includes(dataStreamId) && !dataStreamId.includes(currentName)) {
+              isActiveStream = false;
             }
           }
           if (!isActiveStream) return;
@@ -3301,8 +3307,10 @@
             const latlng = [parseFloat(data.lat), parseFloat(data.lon)];
             copMarker.setLatLng(latlng);
             
-            const cs = document.getElementById('viewer-cs').textContent.replace(/^◉\s*/, '');
-            const src = document.getElementById('viewer-src').textContent || 'Local Stream';
+            const csEl = document.getElementById('viewer-cs');
+            const cs = csEl ? csEl.textContent.replace(/^◉\s*/, '') : 'UAS FEED';
+            const srcEl = document.getElementById('viewer-src');
+            const src = (srcEl && srcEl.textContent) ? srcEl.textContent : 'MediaMTX';
             const popupHtml = `
               <div style="line-height: 1.5; letter-spacing: 0.5px;">
                 <strong style="color:#fff;">SRC:</strong> ${src}<br>
