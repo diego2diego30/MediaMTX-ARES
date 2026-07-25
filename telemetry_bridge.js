@@ -661,6 +661,8 @@ function connectTAK() {
     <uid Droid="ARES COP"/>
     <contact callsign="ARES COP" endpoint="*:-1:stcp"/>
     <takv device="Web App" platform="ARES COP" os="Linux" version="1.0"/>
+    <__group name="Cyan" role="Team Member"/>
+    <status battery="100"/>
   </detail>
 </event>`;
     takClient.write(pingXml);

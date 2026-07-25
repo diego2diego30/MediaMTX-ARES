@@ -214,7 +214,8 @@ body, html {
   border-radius: 4px;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
   transition: all 0.3s ease;
-  width: 90px;
+  width: 100px;
+  box-sizing: border-box;
   text-align: center;
 }
 .sidebar-toggle-btn:hover {
@@ -236,6 +237,7 @@ body, html {
   box-sizing: border-box;
   transition: transform 0.3s ease;
   box-shadow: -10px 0 30px rgba(0,0,0,0.8);
+  overflow-y: auto;
 }
 .cop-sidebar-panel.collapsed {
   transform: translateX(302px);
