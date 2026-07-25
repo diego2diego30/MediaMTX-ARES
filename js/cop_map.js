@@ -544,12 +544,14 @@ function processKlvData(data) {
 
 // ── SIDC mapper ───────────────────────────────────────────────────
 function cotToSidc(cotType) {
-  if (!cotType) return 'SFG-UCI----';
+  if (!cotType) return null;
   if (cotType.startsWith('b-m')) return 'GUGPGPRP--****X';
   const parts = cotType.split('-');
-  if (parts.length < 3) return 'SFG-UCI----';
-  const af = { f:'F', h:'H', n:'N', u:'U', a:'A', p:'P', j:'J', k:'K' }[parts[1]] || 'U';
-  const dm = { G:'G', A:'A', S:'S', U:'U', F:'F', X:'X' }[parts[2]] || 'Z';
+  if (parts.length < 3) return null;
+  const af = { f:'F', h:'H', n:'N', u:'U', a:'A', p:'P', j:'J', k:'K' }[parts[1]];
+  const dm = { G:'G', A:'A', S:'S', U:'U', F:'F', X:'X' }[parts[2]];
+  if (!af || !dm) return null;
+  
   if (dm === 'A' && parts.length > 3 && parts[3] === 'U') return `S${af}APMFQ--------`;
   
   if (parts.length > 3) {
@@ -570,55 +572,87 @@ function cotToSidc(cotType) {
 function getTakIcon(cot) {
   const iconsetPath = (cot.iconsetPath || '').toLowerCase();
   const cotType = (cot.type || '').toLowerCase();
+  const callsign = (cot.callsign || '').toLowerCase();
+  const remarks = (cot.remarks || '').toLowerCase();
+  const combinedText = `${iconsetPath} ${cotType} ${callsign} ${remarks}`;
   
-  // 1. FEMA / Incident Management / Emergency
-  if (iconsetPath.includes('fema') || iconsetPath.includes('incident') || cotType.includes('fema') || cotType.startsWith('b-a-')) {
+  // 1. Bicycle / Bike
+  if (combinedText.includes('bicycle') || combinedText.includes('bike')) {
     return L.divIcon({
-      className: 'tak-custom-icon fema-icon',
-      html: `<div style="background:#e74c3c;color:#fff;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 8px rgba(231,76,60,0.8);font-weight:bold;">🚨</div>`,
-      iconSize: [26, 26], iconAnchor: [13, 13]
-    });
-  }
-  
-  // 2. Public Safety Air / Flight / Drone
-  if (iconsetPath.includes('public safety air') || iconsetPath.includes('air') || cotType.includes('a-f-a') || cotType.includes('u-a')) {
-    return L.divIcon({
-      className: 'tak-custom-icon air-icon',
-      html: `<div style="background:#3498db;color:#fff;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 8px rgba(52,152,219,0.8);font-weight:bold;">✈️</div>`,
-      iconSize: [26, 26], iconAnchor: [13, 13]
+      className: 'tak-custom-icon bike-icon',
+      html: `<div style="background:#16a085;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 10px rgba(22,160,133,0.9);font-weight:bold;">🚲</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
     });
   }
 
-  // 3. OSM / Geo Ops / Generic / Google / FalconView
-  if (iconsetPath.includes('google') || iconsetPath.includes('osm') || iconsetPath.includes('geo ops') || iconsetPath.includes('falconview') || iconsetPath.includes('generic')) {
+  // 2. Emergency / FEMA / Incident / Medical
+  if (combinedText.includes('fema') || combinedText.includes('incident') || combinedText.includes('medic') || combinedText.includes('hospital') || cotType.startsWith('b-a-')) {
     return L.divIcon({
-      className: 'tak-custom-icon geo-icon',
-      html: `<div style="background:#f1c40f;color:#000;border:2px solid #000;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 8px rgba(241,196,15,0.8);font-weight:bold;">📍</div>`,
-      iconSize: [26, 26], iconAnchor: [13, 13]
+      className: 'tak-custom-icon emergency-custom-icon',
+      html: `<div style="background:#e74c3c;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 10px rgba(231,76,60,0.9);font-weight:bold;">🚨</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
     });
   }
 
-  // 4. Default: MIL-STD-2525B/C Symbology via Milsymbol
+  // 3. Camera / Video / Feed
+  if (combinedText.includes('camera') || combinedText.includes('feed') || combinedText.includes('video') || cotType.includes('b-i-v')) {
+    return L.divIcon({
+      className: 'tak-custom-icon camera-icon',
+      html: `<div style="background:#9b59b6;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 10px rgba(155,89,182,0.9);font-weight:bold;">🎥</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
+    });
+  }
+
+  // 4. Vehicle / Car / Truck
+  if (combinedText.includes('vehicle') || combinedText.includes('car') || combinedText.includes('truck')) {
+    return L.divIcon({
+      className: 'tak-custom-icon vehicle-icon',
+      html: `<div style="background:#e67e22;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 10px rgba(230,126,34,0.9);font-weight:bold;">🚗</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
+    });
+  }
+
+  // 5. Aircraft / Drone / Aviation
+  if (combinedText.includes('drone') || combinedText.includes('air') || cotType.includes('a-f-a') || cotType.includes('u-a')) {
+    return L.divIcon({
+      className: 'tak-custom-icon aviation-icon',
+      html: `<div style="background:#3498db;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 10px rgba(52,152,219,0.9);font-weight:bold;">✈️</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
+    });
+  }
+
+  // 6. Observation / Checkpoint / POI
+  if (combinedText.includes('checkpoint') || combinedText.includes('observation') || combinedText.includes('op') || combinedText.includes('guard')) {
+    return L.divIcon({
+      className: 'tak-custom-icon op-icon',
+      html: `<div style="background:#2ecc71;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 10px rgba(46,204,113,0.9);font-weight:bold;">👁️</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
+    });
+  }
+
+  // 7. Check if it's a valid 2525 Military Track
   const sidc = cotToSidc(cot.type);
-  try {
-    const sym = new ms.Symbol(sidc, { size: 25 });
-    const svgHtml = sym.asSVG();
-    if (!svgHtml) throw new Error("empty SVG");
-    return L.divIcon({
-      className: '',
-      html: svgHtml,
-      iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
-      popupAnchor: [0, -sym.getAnchor().y]
-    });
-  } catch (e) {
-    return L.divIcon({
-      className: '',
-      html: '<div style="width:16px;height:16px;background:#00ff5e;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px #00ff5e;"></div>',
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-      popupAnchor: [0, -10]
-    });
+  if (sidc) {
+    try {
+      const sym = new ms.Symbol(sidc, { size: 25 });
+      const svgHtml = sym.asSVG();
+      if (svgHtml) {
+        return L.divIcon({
+          className: '',
+          html: svgHtml,
+          iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
+          popupAnchor: [0, -sym.getAnchor().y]
+        });
+      }
+    } catch (e) {}
   }
+
+  // 8. Custom / Non-standard Marker fallback (Distinct Custom Yellow/Green Pin instead of Cyan Friendly Ground Box)
+  return L.divIcon({
+    className: 'tak-custom-icon generic-custom-icon',
+    html: `<div style="background:#f1c40f;color:#000;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 10px rgba(241,196,15,0.9);font-weight:bold;">📍</div>`,
+    iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -13]
+  });
 }
 
 // ── Main CoT dispatcher ───────────────────────────────────────────
