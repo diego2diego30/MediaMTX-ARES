@@ -90,7 +90,12 @@
 
   <!-- Chat UI -->
   <div id="chat-panel" class="chat-panel">
-    <div class="chat-header">GEOCHAT (All Chat Rooms)</div>
+    <div class="chat-header">GEOCHAT</div>
+    <div style="padding: 5px; background: rgba(0,0,0,0.6); border-bottom: 1px solid var(--green-bright);">
+      <select id="chat-recipient" style="width: 100%; background: #000; color: var(--green-bright); border: 1px solid var(--green-bright); font-family: monospace; padding: 2px;">
+        <option value="All Chat Rooms">All Chat Rooms (Broadcast)</option>
+      </select>
+    </div>
     <div id="chat-log" class="chat-log"></div>
     <div class="chat-input-row">
       <input type="text" id="chat-input" placeholder="Transmit message..." />

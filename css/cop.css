@@ -323,7 +323,7 @@ body, html {
 .chat-toggle-btn {
   position: absolute;
   bottom: 20px;
-  left: 20px;
+  left: 80px;
   z-index: 1000;
   background: var(--bg-card);
   color: var(--green-bright);
@@ -352,7 +352,7 @@ body, html {
 .chat-panel {
   position: absolute;
   bottom: 70px;
-  left: 20px;
+  left: 80px;
   z-index: 1000;
   width: 320px;
   height: 400px;

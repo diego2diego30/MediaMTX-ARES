@@ -476,7 +476,7 @@ klvSocket.on('message', (msg) => {
            const cotSpeed = 0; // KLV doesn't provide ground speed in this parse
 
            const videoUrl = `rtsp://ares-werx.com:8554/${streamId}`;
-           const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" ConnectionEntry="ARES Video Server"/><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" ConnectionEntry="ARES Video Server"/><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
            takClient.write(cotXml);
            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
@@ -744,22 +744,24 @@ wss.on('connection', (ws) => {
         const cotType = data.type || 'b-m-p-s-m';
         const now = new Date();
         const stale = new Date(now.getTime() + 30 * 60 * 1000);
-        const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Created from ARES COP</remarks></detail></event>`;
+        const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Created from ARES COP</remarks></detail></event>`;
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
           console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server.`);
         }
         broadcast([{ uid, type: cotType, lat, lon, callsign }]);
       } else if (data.cmd === 'push_geochat') {
-        const uid = `GeoChat.ARES-COP.All Chat Rooms.${crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex')}`;
         const sender = data.senderCallsign || 'ARES-COP';
         const message = data.message || '';
+        const recipientUid = data.recipientUid || 'All Chat Rooms';
+        const recipientCallsign = data.recipientCallsign || 'All Chat Rooms';
+        const uid = `GeoChat.${sender}.${recipientUid}.${crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex')}`;
         const now = new Date();
         const stale = new Date(now.getTime() + 120 * 60 * 1000);
-        const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="b-t-f" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/><detail><__chat senderCallsign="${sender}" chatroom="All Chat Rooms" groupOwner="false"><chatgrp uid0="ARES-COP" uid1="All Chat Rooms"/></__chat><remarks source="ARES-COP" sourceID="ares-cop-server" time="${now.toISOString()}">${message}</remarks></detail></event>`;
+        const cotXml = `<event version="2.0" uid="${uid}" type="b-t-f" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/><detail><__chat senderCallsign="${sender}" chatroom="${recipientCallsign}" groupOwner="false"><chatgrp uid0="${sender}" uid1="${recipientUid}" id="${recipientCallsign}"/></__chat><link uid="${sender}" type="a-f-G-U-C" relation="p-p"/><remarks source="${sender}" to="${recipientUid}" time="${now.toISOString()}">${message}</remarks></detail></event>`;
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
-          console.log(`[GeoChat PUSH] "${message}" from ${sender} sent to TAK.`);
+          console.log(`[GeoChat PUSH] "${message}" from ${sender} to ${recipientCallsign} sent to TAK.`);
         }
         broadcast({ type: 'chat', sender, message, timestamp: now.toISOString() });
       } else if (data.cmd === 'push_cot_raw') {

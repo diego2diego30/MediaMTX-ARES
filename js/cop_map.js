@@ -195,6 +195,7 @@ function processCotData(cotArray) {
 
 // ── Point entity (a-*, b-m-p-*, etc.) ────────────────────────────
 function processPointCot(cot) {
+  if (cot.type === 'b-t-f') return; // Ignore chat markers
   const id = cot.uid;
   const latlng = [cot.lat, cot.lon];
   const sidc = cotToSidc(cot.type);
@@ -369,11 +370,22 @@ function initChat() {
 
 function sendChatMessage() {
   const input = document.getElementById('chat-input');
+  const sel = document.getElementById('chat-recipient');
   const text = input.value.trim();
   if (!text) return;
+  
+  const recipientCallsign = sel ? sel.value : 'All Chat Rooms';
+  const recipientUid = sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].getAttribute('data-uid') : 'All Chat Rooms';
+
   if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
-    wsTelemetry.send(JSON.stringify({ cmd: 'push_geochat', senderCallsign: 'ARES-COP', message: text }));
-    appendChatMessage('ARES-COP', text, new Date().toISOString(), true);
+    wsTelemetry.send(JSON.stringify({ 
+      cmd: 'push_geochat', 
+      senderCallsign: 'ARES-COP', 
+      message: text,
+      recipientCallsign: recipientCallsign,
+      recipientUid: recipientUid
+    }));
+    appendChatMessage('ARES-COP', `[To: ${recipientCallsign}] ${text}`, new Date().toISOString(), true);
     input.value = '';
   }
 }
@@ -461,8 +473,30 @@ window.addEventListener('DOMContentLoaded', () => {
     }).join('');
     if (container.innerHTML !== html) container.innerHTML = html;
   }
-  setInterval(updateTrackSidebar, 2000);
+  
+  function updateChatRecipients() {
+    const sel = document.getElementById('chat-recipient');
+    if (!sel) return;
+    const currentVal = sel.value;
+    const tracks = Object.values(window.trackData || {}).filter(t => t.type === 'GROUND UNIT' || t.type.includes('USER'));
+    
+    let html = `<option value="All Chat Rooms" data-uid="All Chat Rooms">All Chat Rooms (Broadcast)</option>`;
+    tracks.sort((a,b) => (a.callsign||'').localeCompare(b.callsign||'')).forEach(t => {
+      html += `<option value="${t.callsign}" data-uid="${t.id}">${t.callsign}</option>`;
+    });
+    
+    if (sel.innerHTML !== html) {
+      sel.innerHTML = html;
+      if (Array.from(sel.options).some(o => o.value === currentVal)) sel.value = currentVal;
+    }
+  }
+
+  setInterval(() => {
+    updateTrackSidebar();
+    updateChatRecipients();
+  }, 2000);
   updateTrackSidebar();
+  updateChatRecipients();
 
   // Demo controls
   function sendDemoControl(payload) {
