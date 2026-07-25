@@ -1,12 +1,14 @@
 const WebSocket = require('ws');
 const { spawn } = require('child_process');
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
 const tls = require('tls');
+const AdmZip = require('adm-zip');
 const misb = require('@vidterra/misb.js');
 const SYNC_KEY = Buffer.from([0x06, 0x0E, 0x2B, 0x34, 0x02, 0x0B, 0x01, 0x01, 0x0E, 0x01, 0x03, 0x01, 0x01, 0x00, 0x00, 0x00]);
 
@@ -293,6 +295,178 @@ const httpServer = http.createServer((req, res) => {
     req.on('error', () => {
       res.writeHead(500); res.end('Upload error');
     });
+    return;
+  }
+
+  // ── TAK DATA SYNC MISSION PACKAGE API (.ZIP & REST) ──
+  if (req.url === '/api/datasync/export' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const { name, items } = JSON.parse(body || '{}');
+        const missionName = name || `ARES_Mission_${Date.now()}`;
+        const missionUid = `mission-${crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex')}`;
+        
+        const zip = new AdmZip();
+        
+        // Build manifest.xml adhering to TAK Mission Package Spec v2
+        let manifestXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<MissionPackageManifest version="2">\n  <Configuration>\n    <Parameter name="name" value="${missionName}"/>\n    <Parameter name="uid" value="${missionUid}"/>\n    <Parameter name="onReceiveDelete" value="false"/>\n  </Configuration>\n  <Contents>\n`;
+        
+        if (Array.isArray(items)) {
+          items.forEach((item, idx) => {
+            const itemUid = item.id || item.uid || `item-${idx}-${Date.now()}`;
+            const itemCallsign = item.callsign || item.name || itemUid;
+            const cotType = item.type || 'b-m-p-s-m';
+            const lat = item.lat || 0;
+            const lon = item.lon || 0;
+            const now = new Date().toISOString();
+            const stale = new Date(Date.now() + 86400000).toISOString();
+            
+            let cotXml = item.xml;
+            if (!cotXml) {
+              if (cotType.startsWith('u-d-') || item.shapeType) {
+                const st = item.shapeType || 'polyline';
+                const color = item.color || '#00ff5e';
+                const weight = item.weight || 2.5;
+                const opacity = item.fillOpacity || 0.35;
+                let shapeDetail = `<link uid="${itemUid}" type="${st}" color="${color}" weight="${weight}" fillOpacity="${opacity}"/>`;
+                if (item.vertices && Array.isArray(item.vertices)) {
+                  item.vertices.forEach(v => { shapeDetail += `<link point="${v.lat},${v.lon}"/>`; });
+                }
+                cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${itemUid}" type="${cotType}" time="${now}" start="${now}" stale="${stale}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${itemCallsign}"/>${shapeDetail}<remarks>ARES COP Shape</remarks></detail></event>`;
+              } else {
+                cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${itemUid}" type="${cotType}" time="${now}" start="${now}" stale="${stale}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${itemCallsign}"/><remarks>ARES COP Marker</remarks></detail></event>`;
+              }
+            }
+            
+            const zipPath = `items/${itemCallsign.replace(/[^a-zA-Z0-9_-]/g, '_')}_${idx}.cot`;
+            zip.addFile(zipPath, Buffer.from(cotXml, 'utf8'));
+            manifestXml += `    <Content ignore="false" zipEntry="${zipPath}">\n      <Parameter name="uid" value="${itemUid}"/>\n    </Content>\n`;
+          });
+        }
+        
+        manifestXml += `  </Contents>\n</MissionPackageManifest>`;
+        zip.addFile('manifest.xml', Buffer.from(manifestXml, 'utf8'));
+        
+        const zipBuffer = zip.toBuffer();
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Length': zipBuffer.length,
+          'Content-Disposition': `attachment; filename="${missionName.replace(/[^a-zA-Z0-9_-]/g, '_')}.zip"`
+        });
+        res.end(zipBuffer);
+        console.log(`[DataSync] Generated .zip package for mission: ${missionName} (${zipBuffer.length} bytes)`);
+      } catch (e) {
+        console.error('[DataSync Export Error]', e);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/api/datasync/import' && req.method === 'POST') {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const zip = new AdmZip(buffer);
+        const zipEntries = zip.getEntries();
+        
+        let manifestEntry = zipEntries.find(e => e.entryName === 'manifest.xml' || e.entryName.endsWith('/manifest.xml'));
+        let missionName = 'Imported_TAK_Package';
+        if (manifestEntry) {
+          const mText = zip.readAsText(manifestEntry);
+          const nameMatch = mText.match(/<Parameter[^>]*name=['"]name['"][^>]*value=['"]([^'"]+)['"]/i) || mText.match(/value=['"]([^'"]+)['"][^>]*name=['"]name['"]/i);
+          if (nameMatch) missionName = nameMatch[1].trim();
+        }
+        
+        const cotEntries = zipEntries.filter(e => e.entryName.endsWith('.cot') || e.entryName.endsWith('.xml') && !e.entryName.includes('manifest.xml'));
+        const importedItems = [];
+        
+        cotEntries.forEach(entry => {
+          const xml = zip.readAsText(entry);
+          if (xml && xml.includes('<event')) {
+            const uidMatch = xml.match(/uid=['"]([^'"]+)['"]/);
+            const typeMatch = xml.match(/type=['"]([^'"]+)['"]/);
+            const latMatch = xml.match(/lat=['"]([^'"]+)['"]/);
+            const lonMatch = xml.match(/lon=['"]([^'"]+)['"]/);
+            const csMatch = xml.match(/callsign=['"]([^'"]+)['"]/);
+            
+            if (uidMatch && typeMatch && latMatch && lonMatch) {
+              const item = {
+                uid: uidMatch[1],
+                type: typeMatch[1],
+                lat: parseFloat(latMatch[1]),
+                lon: parseFloat(lonMatch[1]),
+                callsign: csMatch ? csMatch[1] : uidMatch[1],
+                xml: xml
+              };
+              importedItems.push(item);
+              
+              if (takClient && !takClient.destroyed) {
+                takClient.write(xml);
+              }
+            }
+          }
+        });
+        
+        if (importedItems.length > 0) {
+          broadcast(importedItems);
+        }
+        
+        console.log(`[DataSync] Successfully imported package "${missionName}" with ${importedItems.length} items`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, missionName, count: importedItems.length, items: importedItems }));
+      } catch (e) {
+        console.error('[DataSync Import Error]', e);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to parse TAK .zip package: ' + e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/api/datasync/remote/list' && req.method === 'GET') {
+    const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
+    const useTls = process.env.TAK_USE_TLS === 'true';
+    const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
+    
+    if (!useTls) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ missions: [] }));
+      return;
+    }
+    
+    const tlsOptions = {
+      hostname: takHost,
+      port: restPort,
+      path: '/Marti/api/sync/mission',
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true'
+    };
+    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
+    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
+    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
+    if (process.env.TAK_TLS_SERVERNAME) tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
+    
+    const proxyReq = https.request(tlsOptions, (proxyRes) => {
+      let data = '';
+      proxyRes.on('data', c => { data += c; });
+      proxyRes.on('end', () => {
+        res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json' });
+        res.end(data || JSON.stringify({ missions: [] }));
+      });
+    });
+    proxyReq.on('error', (e) => {
+      console.warn('[TAK REST Error]', e.message);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ missions: [], error: e.message }));
+    });
+    proxyReq.end();
     return;
   }
 

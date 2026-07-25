@@ -89,6 +89,12 @@
           <div style="font-style:italic;">No local mission items yet.</div>
         </div>
         <button onclick="window.broadcastDataSyncMission()" style="margin-top:8px; background:var(--green-bright); color:#000; border:none; padding:6px; width:100%; font-weight:bold; cursor:pointer;">📡 SYNC / BROADCAST MISSION TO TAK</button>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button onclick="window.exportMissionZip()" style="flex:1; background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:6px; font-weight:bold; cursor:pointer;" title="Download TAK Mission Package (.zip)">📤 EXPORT .ZIP</button>
+          <input type="file" id="datasync-zip-upload" accept=".zip" style="display:none;" onchange="window.importMissionZip(event)">
+          <button onclick="document.getElementById('datasync-zip-upload').click()" style="flex:1; background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:6px; font-weight:bold; cursor:pointer;" title="Import ATAK/iTAK Mission Package (.zip)">📥 IMPORT .ZIP</button>
+        </div>
+        <button onclick="window.fetchRemoteTakMissions()" style="margin-top:6px; background:transparent; color:var(--green-bright); border:1px dashed var(--green-mid); padding:6px; width:100%; font-weight:bold; cursor:pointer;" title="Query live missions on TAK Server REST API">🌐 FETCH REMOTE TAK MISSIONS</button>
       </div>
     </div>
     

@@ -351,7 +351,118 @@ window.broadcastDataSyncMission = function() {
   showTacticalBanner('📡 BROADCASTED ' + window.localMissionItems.length + ' MISSION ITEMS TO TAK');
 };
 
+window.exportMissionZip = function() {
+  const missionSel = document.getElementById('datasync-mission-sel');
+  const missionName = (missionSel && missionSel.value) ? missionSel.value : 'Local_Tactical_Mission';
+  const items = window.localMissionItems || [];
+  
+  if (items.length === 0 && Object.keys(markers).length === 0 && drawnItems && drawnItems.getLayers().length === 0) {
+    alert('No items on map to export! Add markers or shapes first.');
+    return;
+  }
+  
+  const exportItems = [];
+  items.forEach(it => exportItems.push(it));
+  
+  if (exportItems.length === 0) {
+    for (let k in markers) {
+      if (markers[k] && markers[k].cotData) {
+        exportItems.push(markers[k].cotData);
+      }
+    }
+  }
+  
+  showTacticalBanner('📦 PACKAGING TAK MISSION: ' + missionName.toUpperCase());
+  
+  fetch('/api/datasync/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: missionName, items: exportItems })
+  })
+  .then(res => {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.blob();
+  })
+  .then(blob => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = missionName.replace(/[^a-zA-Z0-9_-]/g, '_') + '.zip';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    showTacticalBanner('✅ EXPORTED MISSION PACKAGE (.ZIP)');
+  })
+  .catch(err => {
+    console.error('Export error:', err);
+    alert('Failed to export mission package: ' + err.message);
+  });
+};
 
+window.importMissionZip = function(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  
+  showTacticalBanner('📥 IMPORTING & UNPACKING TAK PACKAGE: ' + file.name.toUpperCase());
+  
+  fetch('/api/datasync/import', {
+    method: 'POST',
+    body: file
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data && data.success) {
+      showTacticalBanner('✅ UNPACKED ' + data.count + ' ITEMS FROM MISSION: ' + (data.missionName || file.name).toUpperCase());
+      if (data.items && Array.isArray(data.items)) {
+        processCotData(data.items);
+      }
+    } else {
+      alert('Import failed: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(err => {
+    console.error('Import error:', err);
+    alert('Failed to import TAK .zip package: ' + err.message);
+  });
+  
+  event.target.value = '';
+};
+
+window.fetchRemoteTakMissions = function() {
+  showTacticalBanner('🌐 QUERYING TAK SERVER FOR REMOTE MISSIONS...');
+  fetch('/api/datasync/remote/list')
+  .then(res => res.json())
+  .then(data => {
+    if (data && data.error) {
+      showTacticalBanner('⚠️ TAK SERVER REST API: ' + data.error);
+    } else if (data && data.missions && data.missions.length > 0) {
+      showTacticalBanner('📡 FOUND ' + data.missions.length + ' REMOTE MISSIONS ON TAK SERVER');
+      const sel = document.getElementById('datasync-mission-sel');
+      if (sel) {
+        data.missions.forEach(m => {
+          const name = m.name || m.title || m;
+          let exists = false;
+          for (let i=0; i<sel.options.length; i++) {
+            if (sel.options[i].value === name) exists = true;
+          }
+          if (!exists) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = '☁️ [TAK] ' + name;
+            sel.appendChild(opt);
+          }
+        });
+      }
+    } else {
+      showTacticalBanner('🌐 NO REMOTE MISSIONS FOUND ON TAK SERVER');
+    }
+  })
+  .catch(err => {
+    console.error('Remote fetch error:', err);
+    showTacticalBanner('⚠️ FAILED TO QUERY TAK SERVER REST API');
+  });
+};
 // ── Telemetry WebSocket ───────────────────────────────────────────
 function connectTelemetry() {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
