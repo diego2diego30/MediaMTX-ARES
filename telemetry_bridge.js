@@ -443,7 +443,7 @@ const httpServer = http.createServer((req, res) => {
     const tlsOptions = {
       hostname: takHost,
       port: restPort,
-      path: '/Marti/api/sync/mission',
+      path: '/Marti/sync/search',
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true'
@@ -457,14 +457,21 @@ const httpServer = http.createServer((req, res) => {
       let data = '';
       proxyRes.on('data', c => { data += c; });
       proxyRes.on('end', () => {
-        res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json' });
-        res.end(data || JSON.stringify({ missions: [] }));
+        let missions = [];
+        try {
+          const parsed = JSON.parse(data);
+          if (Array.isArray(parsed.results)) missions = parsed.results;
+          else if (Array.isArray(parsed.missions)) missions = parsed.missions;
+          else if (Array.isArray(parsed)) missions = parsed;
+        } catch(e) {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ missions }));
       });
     });
     proxyReq.on('error', (e) => {
       console.warn('[TAK REST Error]', e.message);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ missions: [], error: e.message }));
+      res.end(JSON.stringify({ missions: [] }));
     });
     proxyReq.end();
     return;
@@ -665,7 +672,7 @@ klvSocket.on('message', (msg) => {
            const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
            const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
            const hlsBase = process.env.PUBLIC_HLS_BASE || `https://${publicHost}`;
-           const videoUrl = `${hlsBase}/${streamId}/index.m3u8`;
+           const videoUrl = `${hlsBase}/hls/${streamId}/index.m3u8`;
            const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q-r" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
            takClient.write(cotXml);
@@ -967,7 +974,7 @@ function broadcastVideoAliasCots() {
           const stale = new Date(now.getTime() + 120000); // 2 min stale
           
           // Use HLS URL since iTAK supports it natively over HTTPS
-          const hlsUrl = `${hlsBase}/${name}/index.m3u8`;
+          const hlsUrl = `${hlsBase}/hls/${name}/index.m3u8`;
           
           let lat = 34.665;
           let lon = -77.55;
@@ -1113,7 +1120,7 @@ wss.on('connection', (ws) => {
         const streamName = (data.stream_id || callsign.replace(/^MTX-/i, '').toLowerCase());
         const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
         const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
-        const hlsUrl = `https://${publicHost}/${streamName}/index.m3u8`;
+        const hlsUrl = `https://${publicHost}/hls/${streamName}/index.m3u8`;
         
         const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="a-f-A-M-F-Q-r" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g"><point lat="${lat}" lon="${lon}" hae="${alt}" ce="10" le="10"/><detail><uid Droid="${callsign}"/><contact callsign="${callsign}"/><__video url="${hlsUrl}" uid="${uid}"><ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${streamName}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/></__video><remarks>ARES MediaMTX Live Drone (${callsign})</remarks></detail></event>`;
         if (takClient && !takClient.destroyed) {
