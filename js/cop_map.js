@@ -60,7 +60,7 @@ function initCopMap() {
   // Base layers
   const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
-  }).addTo(copMap);
+  });
 
   const esriSat = L.tileLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -71,7 +71,7 @@ function initCopMap() {
     'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 19, opacity: 0.85 }
   );
-  const esriHybrid = L.layerGroup([esriSat, esriLabels]);
+  const esriHybrid = L.layerGroup([esriSat, esriLabels]).addTo(copMap);
 
   // Offline MBTiles overlay
   const localTiles = L.tileLayer('/tiles/{z}/{x}/{y}.png', {
@@ -81,9 +81,9 @@ function initCopMap() {
   }).addTo(copMap);
 
   const baseMaps = {
-    'Carto Dark': cartoDark,
-    'Satellite (Esri)': esriSat,
-    'Satellite + Labels': esriHybrid
+    'Satellite + Labels': esriHybrid,
+    'Satellite (Pure)': esriSat,
+    'Carto Dark': cartoDark
   };
   const overlayMaps = { 'Camp Lejeune MBTiles': localTiles };
   L.control.layers(baseMaps, overlayMaps, { position: 'bottomleft' }).addTo(copMap);
