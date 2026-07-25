@@ -28,6 +28,8 @@ services:
     volumes:
       - ./:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # UAS Telemetry Bridge (Node.js + FFmpeg KLV Extraction)
   telemetry:
