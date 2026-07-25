@@ -818,8 +818,19 @@ function connectTAK() {
           const remarksRaw = eventXml.match(/<remarks[^>]*>([^<]*)<\/remarks>/);
           if (remarksRaw && remarksRaw[1].trim()) cotObj.remarks = remarksRaw[1].trim();
 
-          const imageMatch = eventXml.match(/<image[^>]*>([^<]*)<\/image>/);
-          if (imageMatch) cotObj.imageUrl = imageMatch[1].trim();
+          const imageMatch = eventXml.match(/<image[^>]*src=["']([^"']+)["']/i) || 
+                             eventXml.match(/<image[^>]*url=["']([^"']+)["']/i) || 
+                             eventXml.match(/<image[^>]*>([^<]+)<\/image>/i);
+          if (imageMatch && imageMatch[1].trim()) cotObj.imageUrl = imageMatch[1].trim();
+
+          const attachMatch = eventXml.match(/<attachment[^>]*url=["']([^"']+)["']/i) ||
+                              eventXml.match(/<fileshare[^>]*senderUrl=["']([^"']+)["']/i) ||
+                              eventXml.match(/<fileshare[^>]*url=["']([^"']+)["']/i);
+          if (attachMatch && attachMatch[1].trim()) cotObj.attachmentUrl = attachMatch[1].trim();
+
+          const attachNameMatch = eventXml.match(/filename=["']([^"']+)["']/i) ||
+                                  eventXml.match(/<attachment[^>]*name=["']([^"']+)["']/i);
+          if (attachNameMatch) cotObj.attachmentName = attachNameMatch[1].trim();
 
           const usericonMatch = eventXml.match(/iconsetpath=["']([^"']+)["']/i) || eventXml.match(/<usericon[^>]*>([^<]*)<\/usericon>/i);
           if (usericonMatch) cotObj.iconsetPath = usericonMatch[1].trim();

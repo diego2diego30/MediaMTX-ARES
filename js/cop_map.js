@@ -669,7 +669,10 @@ function processPointCot(cot) {
   }
   if (!markers[id]) {
     markers[id] = L.marker(latlng, { icon: symIcon }).addTo(copMap);
-    markers[id].bindTooltip(cot.callsign, { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tactical-map-label' });
+    let tooltipLabel = cot.callsign;
+    if (cot.imageUrl) tooltipLabel = '📷 ' + cot.callsign;
+    else if (cot.attachmentUrl || cot.attachmentName) tooltipLabel = '📎 ' + cot.callsign;
+    markers[id].bindTooltip(tooltipLabel, { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tactical-map-label' });
   } else {
     markers[id].setLatLng(latlng);
     markers[id].setIcon(symIcon);
@@ -680,7 +683,14 @@ function processPointCot(cot) {
     ['LON',  cot.lon.toFixed(5)]
   ];
   if (cot.remarks) popupRows.push(['NOTE', cot.remarks]);
-  if (cot.imageUrl) popupRows.push(['IMG', '<img src="' + cot.imageUrl + '" style="max-width:120px;max-height:80px;border:1px solid #00ff5e;" />']);
+  if (cot.imageUrl) {
+    popupRows.push(['PHOTO', `<a href="${cot.imageUrl}" target="_blank"><img src="${cot.imageUrl}" style="max-width:180px;max-height:120px;border:1px solid var(--green-bright);border-radius:4px;margin-top:4px;display:block;" /></a>`]);
+  }
+  if (cot.attachmentUrl || cot.attachmentName) {
+    const name = cot.attachmentName || 'Download Attachment';
+    const url = cot.attachmentUrl || '#';
+    popupRows.push(['ATTACHMENT', `<a href="${url}" target="_blank" style="color:var(--green-bright);font-weight:bold;text-decoration:underline;">📎 ${name}</a>`]);
+  }
   
   let popupHtml = buildPopup(cot.callsign, popupRows);
   popupHtml += `<button onclick="window.broadcastMarkerToTak('${id}')" style="margin-top:8px;background:var(--green-mid);color:#000;border:none;padding:6px 10px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 RE-BROADCAST TO TAK</button>`;
