@@ -1856,6 +1856,13 @@
       display: flex;
     }
 
+    /* Option A: Hide HUD overlay on Desktop/TV screens, relying on sidebar KLV Telemetry instead */
+    @media (min-width: 1024px) {
+      .hud-overlay, .hud-overlay.active {
+        display: none !important;
+      }
+    }
+
     .hud-panel {
       background: rgba(0, 20, 0, 0.4);
       border: 1px solid rgba(0, 255, 94, 0.3);
@@ -2038,6 +2045,14 @@
         <div class="stat-cell">
           <div class="stat-label">HDG</div>
           <div class="stat-num plain sm" id="sb-hdg">--°</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">PITCH</div>
+          <div class="stat-num plain sm" id="sb-pitch">--°</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">ROLL</div>
+          <div class="stat-num plain sm" id="sb-roll">--°</div>
         </div>
       </div>
 
@@ -3201,6 +3216,10 @@
           document.getElementById('sb-lon').textContent = formatVal(data.lon);
           document.getElementById('sb-alt').textContent = formatVal(data.alt);
           document.getElementById('sb-hdg').textContent = formatDegree(data.hdg);
+          const sbPitch = document.getElementById('sb-pitch');
+          if (sbPitch) sbPitch.textContent = formatDegree(data.pitch);
+          const sbRoll = document.getElementById('sb-roll');
+          if (sbRoll) sbRoll.textContent = formatDegree(data.roll);
 
           // Update Map
           if (copMapActive && copMap && copMarker) {
@@ -3254,7 +3273,7 @@
 
     function resetTelemetryUI() {
       // Reset values
-      const els = ['hud-lat', 'hud-lon', 'hud-alt', 'hud-hdg', 'hud-pitch', 'hud-roll', 'sb-lat', 'sb-lon', 'sb-alt', 'sb-hdg'];
+      const els = ['hud-lat', 'hud-lon', 'hud-alt', 'hud-hdg', 'hud-pitch', 'hud-roll', 'sb-lat', 'sb-lon', 'sb-alt', 'sb-hdg', 'sb-pitch', 'sb-roll'];
       els.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
