@@ -1955,6 +1955,36 @@
     .leaflet-bar, .leaflet-control-layers-toggle {
       filter: invert(0.9) sepia(0.2) hue-rotate(80deg) saturate(2) brightness(1.2);
     }
+
+    /* Recordings Modal */
+    #recordings-modal .modal-content {
+      min-width: 320px;
+      max-width: 95vw;
+      width: 700px;
+    }
+    #recordings-modal table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    #recordings-modal th, #recordings-modal td {
+      padding: 6px 10px;
+      border: 1px solid var(--green-dark);
+      text-align: left;
+      white-space: nowrap;
+    }
+    #recordings-modal td:last-child {
+      white-space: nowrap;
+    }
+    @media (max-width: 600px) {
+      #recordings-modal th:nth-child(2), #recordings-modal td:nth-child(2) {
+        display: none;
+      }
+      #recordings-modal th, #recordings-modal td {
+        padding: 4px 6px;
+        font-size: 11px;
+      }
+    }
   </style>
 </head>
 
@@ -2135,8 +2165,8 @@
             </button>
             <button id="recenter-map-btn" onclick="recenterMap()" title="Center Map on Feed"
               style="background: #000; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
-              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
               </svg>
             </button>
             <button class="btn btn-w" id="btn-fit-toggle" onclick="toggleVideoFit()"
@@ -2493,6 +2523,7 @@
       document.getElementById('hud-rec').style.display = 'none'; // Only show when actually recording
       hideWarn();
       resetTelemetryUI(); // Clear old KLV data when switching streams
+      window.mapAutoPan = true; // Re-enable map auto-pan for new feed
       
       vid.removeAttribute('src');
       vid.load();
@@ -3270,14 +3301,20 @@
           if (data.lat === undefined || data.lon === undefined) return;
           
           // Show telemetry if stream matches or if default simulation active
-          let isActiveStream = true;
+          let isActiveStream = false;
           if (currentMainFeed && currentMainFeed.label) {
-            const currentName = currentMainFeed.label.toLowerCase();
-            const dataStreamId = (data.stream_id || 'demo').toLowerCase();
-            if (dataStreamId !== 'demo' && !currentName.includes(dataStreamId) && !dataStreamId.includes(currentName)) {
-              isActiveStream = false;
+            const currentName = currentMainFeed.label.toLowerCase().trim();
+            const dataStreamId = (data.stream_id || '').toLowerCase().trim();
+            if (dataStreamId === currentName || (dataStreamId === 'demo' && currentName === 'demo')) {
+              isActiveStream = true;
             }
+          } else {
+            isActiveStream = (data.stream_id === 'demo');
           }
+          
+          const sbTel = document.getElementById('sidebar-telemetry');
+          if (sbTel) sbTel.style.display = isActiveStream ? '' : 'none';
+          
           if (!isActiveStream) return;
 
           const formatDegree = val => (val !== undefined && val !== null) ? val + '°' : '--°';
@@ -3406,6 +3443,7 @@
         alert("Select a stream first to record.");
         return;
       }
+      const streamId = currentMainFeed ? currentMainFeed.label : null;
       const btn = document.getElementById('record-main-btn');
       const recOverlay = document.getElementById('hud-rec');
 
@@ -3414,7 +3452,7 @@
           const res = await fetch('/api/record/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ streamId: currentMainPath })
+            body: JSON.stringify({ streamId: streamId })
           });
           if (res.ok) {
             isRecording = true;
@@ -3434,13 +3472,16 @@
           const res = await fetch('/api/record/stop', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ streamId: currentMainPath })
+            body: JSON.stringify({ streamId: streamId })
           });
           if (res.ok) {
             isRecording = false;
             btn.style.background = 'transparent';
             btn.style.borderColor = 'var(--green-dark)';
             recOverlay.style.display = 'none';
+            if (document.getElementById('recordings-modal').style.display === 'flex') {
+              openRecordingsModal();
+            }
           } else {
             alert("Failed to stop recording.");
           }
@@ -3448,6 +3489,13 @@
           console.error(e);
         }
       }
+    }
+
+    async function deleteRecording(name) {
+      if (!confirm('Delete recording ' + name + '?')) return;
+      const res = await fetch('/api/recordings/delete/' + encodeURIComponent(name), { method: 'DELETE' });
+      if (res.ok) { openRecordingsModal(); }
+      else { alert('Failed to delete.'); }
     }
 
     async function openRecordingsModal() {
@@ -3475,7 +3523,8 @@
             <td style="padding: 10px; color: var(--green-dim);">${sizeMB} MB</td>
             <td style="padding: 10px; color: var(--green-dim);">${dateStr}</td>
             <td style="padding: 10px; text-align: right;">
-              <a href="/api/recordings/download/${encodeURIComponent(f.name)}" download class="btn btn-w" style="text-decoration: none; font-size: 11px; padding: 4px 8px;">DOWNLOAD</a>
+              <a href="/api/recordings/download/${encodeURIComponent(f.name)}" download class="btn btn-w" style="text-decoration: none; font-size: 11px; padding: 4px 8px; margin-right: 4px;">DOWNLOAD</a>
+              <button onclick="deleteRecording('${f.name}')" class="btn btn-w" style="text-decoration: none; font-size: 11px; padding: 4px 8px; color: #ff4444; border-color: #ff4444;">DEL</button>
             </td>
           `;
           tbody.appendChild(tr);
