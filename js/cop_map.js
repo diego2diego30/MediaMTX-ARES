@@ -321,10 +321,10 @@ function processShapeCot(cot) {
     trackType = 'RECTANGLE';
     layer.bindPopup(buildPopup(label, [['TYPE', 'Rectangle'], ['LENGTH', `${cot.ellipse.major.toFixed(0)} m`], ['WIDTH', `${cot.ellipse.minor.toFixed(0)} m`], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
-  } else if (cot.type === 'u-d-p' && cot.vertices && cot.vertices.length >= 3) {
+  } else if ((cot.type === 'u-d-p' || cot.type === 'u-d-r') && cot.vertices && cot.vertices.length >= 3) {
     layer = L.polygon(cot.vertices.map(v => [v.lat, v.lon]), style);
-    trackType = 'POLYGON';
-    layer.bindPopup(buildPopup(label, [['TYPE', 'Polygon'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+    trackType = cot.type === 'u-d-r' ? 'RECTANGLE' : 'POLYGON';
+    layer.bindPopup(buildPopup(label, [['TYPE', trackType === 'RECTANGLE' ? 'Rectangle' : 'Polygon'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
   } else if (cot.type === 'u-d-f' && cot.vertices && cot.vertices.length >= 2) {
     layer = L.polyline(cot.vertices.map(v => [v.lat, v.lon]), style);
@@ -368,17 +368,36 @@ function processRouteCot(cot) {
 
 // ── Emergency: b-a-* ─────────────────────────────────────────────
 function processEmergencyCot(cot) {
-  const id = cot.uid;
+  let baseId = cot.uid;
+  if (baseId.includes('-9-1-1')) baseId = baseId.split('-9-1-1')[0];
+  if (baseId.includes('-Alert')) baseId = baseId.split('-Alert')[0];
+  if (baseId.includes('-Cancel')) baseId = baseId.split('-Cancel')[0];
+  
+  let baseCallsign = cot.callsign || 'EMERGENCY';
+  if (baseCallsign.includes('.')) baseCallsign = baseCallsign.split('.')[0];
+  
+  const id = 'EMG-' + baseId;
+  const isCancel = cot.type.endsWith('-k') || cot.type === 'b-a-o-c' || (cot.callsign || '').toLowerCase().includes('cancel');
+
+  if (isCancel) {
+    if (markers[id]) {
+      copMap.removeLayer(markers[id]);
+      delete markers[id];
+      delete window.trackData[id];
+    }
+    return;
+  }
+
   const latlng = [cot.lat, cot.lon];
   if (!markers[id]) {
     markers[id] = L.marker(latlng, { icon: EMERGENCY_ICON, zIndexOffset: 1000 }).addTo(copMap);
-    markers[id].bindTooltip(cot.callsign || 'EMERGENCY', { permanent: true, direction: 'top', className: 'tactical-map-label emergency-label' });
+    markers[id].bindTooltip(baseCallsign, { permanent: true, direction: 'top', className: 'tactical-map-label emergency-label' });
+    copMap.panTo(latlng, { animate: true }); // Only pan on first detection
   } else {
     markers[id].setLatLng(latlng);
   }
-  markers[id].bindPopup(buildPopup('⚠ EMERGENCY', [['CALLSIGN', cot.callsign], ['TYPE', cot.type], ['LAT', cot.lat.toFixed(5)], ['LON', cot.lon.toFixed(5)]]));
-  copMap.panTo(latlng, { animate: true }); // Always pan to emergencies
-  window.trackData[id] = { id, callsign: cot.callsign || 'EMERGENCY', lat: cot.lat, lon: cot.lon, type: 'EMERGENCY' };
+  markers[id].bindPopup(buildPopup('⚠ EMERGENCY', [['CALLSIGN', baseCallsign], ['STATUS', cot.callsign], ['LAT', cot.lat.toFixed(5)], ['LON', cot.lon.toFixed(5)]]));
+  window.trackData[id] = { id, callsign: baseCallsign, lat: cot.lat, lon: cot.lon, type: 'EMERGENCY' };
 }
 
 // ── Rectangle corner calculator (great-circle) ────────────────────

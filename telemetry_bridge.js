@@ -820,10 +820,14 @@ wss.on('connection', (ws) => {
         if (data.shapeType === 'circle' && data.radius) {
           cotType = 'u-d-c';
           detailTags += `<ellipse major="${data.radius}" minor="${data.radius}" angle="0.0"/>`;
+          detailTags += `<link point="${lat},${lon}"/>`; // iTAK requires a link point for circles
         } else if (data.vertices && data.vertices.length > 0) {
           // Polygon, rectangle, or polyline
-          const links = data.vertices.map(v => `<link point="${v.lat},${v.lon}"/>`).join('');
-          detailTags += links;
+          const links = data.vertices.map(v => `<link point="${v.lat},${v.lon}"/>`);
+          if (data.shapeType === 'polygon' || data.shapeType === 'rectangle') {
+            links.push(`<link point="${data.vertices[0].lat},${data.vertices[0].lon}"/>`); // Close the loop
+          }
+          detailTags += links.join('');
         }
         
         // Add styling (green)
