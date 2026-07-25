@@ -749,14 +749,25 @@
     }
 
     /* ── Leaflet Popup ── */
+    .leaflet-container *:focus,
+    .leaflet-marker-icon,
+    .leaflet-marker-icon:focus {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+    .ares-map-marker-wrap {
+      background: transparent !important;
+      border: none !important;
+    }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip {
-      background: rgba(0, 20, 0, 0.9) !important;
-      border: 1px solid var(--green-mid);
+      background: rgba(0, 20, 0, 0.95) !important;
+      border: 1px solid var(--green-bright) !important;
       color: var(--green-bright) !important;
       border-radius: 4px;
+      box-shadow: 0 0 15px rgba(0, 255, 94, 0.3) !important;
     }
     .leaflet-popup-content {
-      margin: 12px;
+      margin: 10px 12px;
       font-family: var(--font-mono);
       font-size: 11px;
     }
@@ -3159,7 +3170,8 @@
                      <div style="width:14px; height:14px; background:#00ff5e; border:2px solid #001a00; border-radius:50%; box-shadow:0 0 10px #00ff5e;"></div>
                    </div>`,
             iconSize: [120, 36],
-            iconAnchor: [60, 36]
+            iconAnchor: [60, 36],
+            popupAnchor: [0, -38]
           });
           return L.marker(latlng, { icon });
         }
