@@ -822,6 +822,9 @@ function connectTAK() {
           const imageMatch = eventXml.match(/<image[^>]*>([^<]*)<\/image>/);
           if (imageMatch) cotObj.imageUrl = imageMatch[1].trim();
 
+          const usericonMatch = eventXml.match(/iconsetpath=["']([^"']+)["']/i) || eventXml.match(/<usericon[^>]*>([^<]*)<\/usericon>/i);
+          if (usericonMatch) cotObj.iconsetPath = usericonMatch[1].trim();
+
           const staleMatch = eventXml.match(/stale=['"]([^'"]+)['"]/);
           if (staleMatch) cotObj.stale = staleMatch[1];
           

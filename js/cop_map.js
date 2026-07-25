@@ -567,6 +567,60 @@ function cotToSidc(cotType) {
   return `S${af}${dm}P-------`;
 }
 
+function getTakIcon(cot) {
+  const iconsetPath = (cot.iconsetPath || '').toLowerCase();
+  const cotType = (cot.type || '').toLowerCase();
+  
+  // 1. FEMA / Incident Management / Emergency
+  if (iconsetPath.includes('fema') || iconsetPath.includes('incident') || cotType.includes('fema') || cotType.startsWith('b-a-')) {
+    return L.divIcon({
+      className: 'tak-custom-icon fema-icon',
+      html: `<div style="background:#e74c3c;color:#fff;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 8px rgba(231,76,60,0.8);font-weight:bold;">🚨</div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13]
+    });
+  }
+  
+  // 2. Public Safety Air / Flight / Drone
+  if (iconsetPath.includes('public safety air') || iconsetPath.includes('air') || cotType.includes('a-f-a') || cotType.includes('u-a')) {
+    return L.divIcon({
+      className: 'tak-custom-icon air-icon',
+      html: `<div style="background:#3498db;color:#fff;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 8px rgba(52,152,219,0.8);font-weight:bold;">✈️</div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13]
+    });
+  }
+
+  // 3. OSM / Geo Ops / Generic / Google / FalconView
+  if (iconsetPath.includes('google') || iconsetPath.includes('osm') || iconsetPath.includes('geo ops') || iconsetPath.includes('falconview') || iconsetPath.includes('generic')) {
+    return L.divIcon({
+      className: 'tak-custom-icon geo-icon',
+      html: `<div style="background:#f1c40f;color:#000;border:2px solid #000;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 8px rgba(241,196,15,0.8);font-weight:bold;">📍</div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13]
+    });
+  }
+
+  // 4. Default: MIL-STD-2525B/C Symbology via Milsymbol
+  const sidc = cotToSidc(cot.type);
+  try {
+    const sym = new ms.Symbol(sidc, { size: 25 });
+    const svgHtml = sym.asSVG();
+    if (!svgHtml) throw new Error("empty SVG");
+    return L.divIcon({
+      className: '',
+      html: svgHtml,
+      iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
+      popupAnchor: [0, -sym.getAnchor().y]
+    });
+  } catch (e) {
+    return L.divIcon({
+      className: '',
+      html: '<div style="width:16px;height:16px;background:#00ff5e;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px #00ff5e;"></div>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+      popupAnchor: [0, -10]
+    });
+  }
+}
+
 // ── Main CoT dispatcher ───────────────────────────────────────────
 function processCotData(cotArray) {
   cotArray.forEach(cot => {
