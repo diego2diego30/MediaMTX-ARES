@@ -585,8 +585,16 @@ function connectTAK() {
           if (linkVertices.length > 0) cotObj.vertices = linkVertices;
 
           // ── Extract ellipse (circle / rectangle dimensions) ──
-          const ellipseMatch = eventXml.match(/major="([^"]+)"[^>]*minor="([^"]+)"[^>]*angle="([^"]+)"/);
-          if (ellipseMatch) cotObj.ellipse = { major: parseFloat(ellipseMatch[1]), minor: parseFloat(ellipseMatch[2]), angle: parseFloat(ellipseMatch[3]) };
+          const ellipseMajor = eventXml.match(/major=["']([^"']+)["']/);
+          const ellipseMinor = eventXml.match(/minor=["']([^"']+)["']/);
+          const ellipseAngle = eventXml.match(/angle=["']([^"']+)["']/);
+          if (ellipseMajor || ellipseMinor || ellipseAngle) {
+            cotObj.ellipse = {
+              major: ellipseMajor ? parseFloat(ellipseMajor[1]) : 0,
+              minor: ellipseMinor ? parseFloat(ellipseMinor[1]) : 0,
+              angle: ellipseAngle ? parseFloat(ellipseAngle[1]) : 0
+            };
+          }
 
           // ── Extract stroke/fill colors (signed 32-bit ARGB) ──
           const strokeColorMatch = eventXml.match(/strokeColor[^>]*value="([^"]+)"/);
@@ -626,10 +634,12 @@ function connectTAK() {
     const now = new Date();
     const stale = new Date(now.getTime() + 60000);
     const pingXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<event version="2.0" uid="ares-cop-server" type="b-m-p-s-m" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o">
+<event version="2.0" uid="ares-cop-server" type="a-f-G-U-C" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o">
   <point lat="0.0" lon="0.0" hae="0.0" ce="9999999.0" le="9999999.0"/>
   <detail>
+    <uid Droid="ARES-COP"/>
     <contact callsign="ARES-COP" endpoint="*:-1:stcp"/>
+    <takv device="Web App" platform="ARES-COP" os="Linux" version="1.0"/>
   </detail>
 </event>`;
     takClient.write(pingXml);
