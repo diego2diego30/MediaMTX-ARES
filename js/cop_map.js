@@ -168,28 +168,6 @@ function initCopMap() {
     layerContainer.appendChild(locBtnDiv);
   }
 
-  // Floating Location Quick-Control Button on Map
-  const LocationControl = L.Control.extend({
-    options: { position: 'topleft' },
-    onAdd: function() {
-      const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control tactical-location-control');
-      const btn = L.DomUtil.create('a', 'leaflet-control-location-btn', container);
-      btn.href = '#';
-      btn.title = 'Center Map on Current Location';
-      btn.innerHTML = '🎯';
-      btn.style.cssText = 'display:flex; align-items:center; justify-content:center; width:34px; height:34px; background:#050f08; color:var(--green-bright); border:1px solid var(--green-mid); border-radius:4px; font-size:18px; text-decoration:none; cursor:pointer; box-shadow:0 0 10px rgba(0,255,94,0.3);';
-
-      L.DomEvent.on(btn, 'click', function(e) {
-        L.DomEvent.preventDefault(e);
-        L.DomEvent.stopPropagation(e);
-        window.centerOnCurrentLocation();
-      });
-
-      return container;
-    }
-  });
-  copMap.addControl(new LocationControl());
-
   // Leaflet Draw (COP-created shapes)
   const drawnItems = new L.FeatureGroup();
   copMap.addLayer(drawnItems);
