@@ -544,8 +544,7 @@ function processKlvData(data) {
 
 // ── SIDC mapper ───────────────────────────────────────────────────
 function cotToSidc(cotType) {
-  if (!cotType) return null;
-  if (cotType.startsWith('b-m')) return 'GUGPGPRP--****X';
+  if (!cotType || !cotType.startsWith('a-')) return null;
   const parts = cotType.split('-');
   if (parts.length < 3) return null;
   const af = { f:'F', h:'H', n:'N', u:'U', a:'A', p:'P', j:'J', k:'K' }[parts[1]];
