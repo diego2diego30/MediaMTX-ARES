@@ -12,7 +12,9 @@ let wsTelemetry;
 let wsReconnectTimer;
 let chatUnread = 0;
 let chatOpen = false;
+window.allChatMessages = []; // Task 3 master array
 const chatLogs = {};
+
 
 // ── Icons ─────────────────────────────────────────────────────────
 const UAS_ICON = L.icon({
@@ -58,6 +60,63 @@ function buildPopup(title, rows) {
   </div>`;
 }
 
+// ── Tactical Banner Notification ───────────────────────────────────
+function showTacticalBanner(text, duration = 6000) {
+  let container = document.getElementById('tactical-banner-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'tactical-banner-container';
+    container.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none;';
+    document.body.appendChild(container);
+  }
+  const banner = document.createElement('div');
+  banner.style.cssText = 'background:rgba(5,5,5,0.92);border:1px solid var(--green-bright,#00ff5e);color:var(--green-bright,#00ff5e);padding:12px 24px;font-family:var(--font-mono,monospace);font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;box-shadow:0 0 20px rgba(0,255,94,0.4);animation:slideUp 0.3s ease forwards;pointer-events:auto;';
+  banner.textContent = text;
+  container.appendChild(banner);
+  setTimeout(() => {
+    banner.style.opacity = '0';
+    banner.style.transition = 'opacity 0.5s ease';
+    setTimeout(() => { if (banner.parentNode) banner.parentNode.removeChild(banner); }, 500);
+  }, duration);
+}
+
+// ── Broadcast Helpers ─────────────────────────────────────────────
+window.broadcastDroneToTak = function(id, callsign, lat, lon, alt) {
+  if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+    wsTelemetry.send(JSON.stringify({ cmd: 'push_drone_cot', id, callsign, lat, lon, alt }));
+    showTacticalBanner('📡 BROADCASTED ' + callsign + ' TO TAK SERVER');
+  }
+};
+
+window.broadcastMarkerToTak = function(id) {
+  const td = window.trackData[id];
+  if (!td) return;
+  if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+    wsTelemetry.send(JSON.stringify({ cmd: 'push_marker_cot', uid: id, callsign: td.callsign || id, lat: td.lat, lon: td.lon }));
+    showTacticalBanner('📡 RE-BROADCAST TO TAK');
+  }
+};
+
+window.updateShapeStyle = function(id) {
+  const colorEl = document.getElementById(`edit-color-${id}`);
+  const opacityEl = document.getElementById(`edit-opacity-${id}`);
+  const weightEl = document.getElementById(`edit-weight-${id}`);
+  if (!colorEl || !opacityEl || !weightEl) return;
+  const color = colorEl.value;
+  const opacity = parseFloat(opacityEl.value);
+  const weight = parseFloat(weightEl.value);
+  
+  if (shapeOverlays[id]) {
+    shapeOverlays[id].setStyle({ color, fillColor: color, fillOpacity: opacity, weight });
+  } else if (window.drawnShapes && window.drawnShapes[id]) {
+    window.drawnShapes[id].layer.setStyle({ color, fillColor: color, fillOpacity: opacity, weight });
+  }
+  
+  window.trackData = window.trackData || {};
+  if (!window.trackData[id]) window.trackData[id] = {};
+  window.trackData[id].customStyle = { color, opacity, weight };
+};
+
 // ── Map Init ──────────────────────────────────────────────────────
 function initCopMap() {
   copMap = L.map('cop-map-container', { zoomControl: false }).setView([34.665, -77.55], 13);
@@ -68,7 +127,12 @@ function initCopMap() {
     attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
   });
 
-  const esriSat = L.tileLayer(
+  const esriSatPure = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, attribution: '&copy; Esri, USDA, USGS, AEX, GeoEye' }
+  );
+  
+  const esriSatHybrid = L.tileLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 19, attribution: '&copy; Esri, USDA, USGS, AEX, GeoEye' }
   );
@@ -77,7 +141,7 @@ function initCopMap() {
     'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 19, opacity: 0.85 }
   );
-  const esriHybrid = L.layerGroup([esriSat, esriLabels]).addTo(copMap);
+  const esriHybrid = L.layerGroup([esriSatHybrid, esriLabels]).addTo(copMap);
 
   // Offline MBTiles overlay
   const localTiles = L.tileLayer('/tiles/{z}/{x}/{y}.png', {
@@ -88,7 +152,7 @@ function initCopMap() {
 
   const baseMaps = {
     'Satellite + Labels': esriHybrid,
-    'Satellite (Pure)': esriSat,
+    'Satellite (Pure)': esriSatPure,
     'Carto Dark': cartoDark
   };
   const overlayMaps = { 'Camp Lejeune MBTiles': localTiles };
@@ -120,7 +184,12 @@ function initCopMap() {
     const popupContent = `
       <div style="font-family: var(--font-main);">
         <strong style="color:var(--green-bright)">Drawn ${e.layerType.toUpperCase()}</strong><br>
-        <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:5px; background:var(--green-mid); color:#000; border:none; padding:4px 8px; cursor:pointer; font-weight:bold; border-radius:2px; width:100%;">BROADCAST TO TAK</button>
+        <div style="margin-top:10px;border-top:1px solid var(--green-dim);padding-top:8px;">
+          <label style="color:var(--green-bright);font-size:11px;">COLOR: <select id="edit-color-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="#00ff5e">Green</option><option value="#ff4444">Red</option><option value="#00ccff">Cyan</option><option value="#ffcc00">Yellow</option><option value="#ff00ff">Magenta</option><option value="#ffffff">White</option></select></label><br>
+          <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
+          <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
+          <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+        </div>
       </div>
     `;
     layer.bindPopup(popupContent).openPopup();
@@ -132,6 +201,13 @@ function initCopMap() {
     const layer = item.layer;
     
     let payload = { cmd: 'push_shape_cot', uid: id, callsign: id };
+    
+    const td = window.trackData && window.trackData[id];
+    if (td && td.customStyle) {
+      payload.color = td.customStyle.color;
+      payload.fillOpacity = td.customStyle.opacity;
+      payload.weight = td.customStyle.weight;
+    }
     
     if (item.type === 'marker') {
       const ll = layer.getLatLng();
@@ -243,7 +319,8 @@ function processKlvData(data) {
   } else {
     markers[id].setLatLng(latlng);
   }
-  markers[id].bindPopup(buildPopup(callsign, [['LAT', data.lat], ['LON', data.lon], ['ALT', `${data.alt} m`]]));
+  markers[id].bindPopup(buildPopup(callsign, [['LAT', data.lat], ['LON', data.lon], ['ALT', `${data.alt} m`]]) + 
+  `<button onclick="window.broadcastDroneToTak('${id}', '${callsign}', ${data.lat}, ${data.lon}, ${data.alt || 0})" style="margin-top:8px;background:var(--green-mid);color:#000;border:none;padding:6px 10px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 BROADCAST DRONE FEED TO TAK</button>`);
   if (Object.keys(markers).length === 1) copMap.panTo(latlng, { animate: true });
   window.trackData[id] = { id, callsign, lat: data.lat, lon: data.lon, type: 'UAS FEED' };
 }
@@ -254,9 +331,22 @@ function cotToSidc(cotType) {
   if (cotType.startsWith('b-m')) return 'GUGPGPRP--****X';
   const parts = cotType.split('-');
   if (parts.length < 3) return 'SFG-UCI----';
-  const af = { f:'F', h:'H', n:'N', a:'A' }[parts[1]] || 'U';
-  const dm = { G:'G', A:'A', S:'S', U:'U' }[parts[2]] || 'Z';
+  const af = { f:'F', h:'H', n:'N', u:'U', a:'A', p:'P', j:'J', k:'K' }[parts[1]] || 'U';
+  const dm = { G:'G', A:'A', S:'S', U:'U', F:'F', X:'X' }[parts[2]] || 'Z';
   if (dm === 'A' && parts.length > 3 && parts[3] === 'U') return `S${af}APMFQ--------`;
+  
+  if (parts.length > 3) {
+    const fn = parts[3].toUpperCase();
+    if (fn === 'I') return `S${af}${dm}PUCI-------`;
+    if (fn === 'A') return `S${af}${dm}PUCA-------`;
+    if (fn === 'M') return `S${af}${dm}PUCM-------`;
+    if (fn === 'MH' || fn === 'CH') return `S${af}${dm}PMH--------`;
+    if (fn === 'MF') return `S${af}${dm}PMF--------`;
+    if (fn === 'HQ') return `S${af}${dm}PHQ--------`;
+    if (fn === 'S') return `S${af}${dm}PUCS-------`;
+    if (fn === 'ES') return `S${af}${dm}PES--------`;
+  }
+  
   return `S${af}${dm}P-------`;
 }
 
@@ -264,6 +354,7 @@ function cotToSidc(cotType) {
 function processCotData(cotArray) {
   cotArray.forEach(cot => {
     if (!cot.type) return;
+    if (cot.type.startsWith('t-x-m') || cot.type.startsWith('t-x-d')) { showTacticalBanner('DATA SYNC: MISSION EVENT — ' + (cot.missionName || cot.callsign || 'TAK MISSION')); return; }
     if (cot.type.startsWith('u-d-'))      processShapeCot(cot);
     else if (cot.type === 'b-m-r')        processRouteCot(cot);
     else if (cot.type.startsWith('b-a-')) processEmergencyCot(cot);
@@ -275,6 +366,14 @@ function processCotData(cotArray) {
 function processPointCot(cot) {
   if (cot.type === 'b-t-f') return; // Ignore chat markers
   const id = cot.uid;
+
+  // Immediately remove emergency beacon on normal point received
+  if (markers['EMG-' + id]) {
+    copMap.removeLayer(markers['EMG-' + id]);
+    delete markers['EMG-' + id];
+    delete window.trackData['EMG-' + id];
+  }
+
   const latlng = [cot.lat, cot.lon];
   const sidc = cotToSidc(cot.type);
   let symIcon;
@@ -312,7 +411,10 @@ function processPointCot(cot) {
   if (cot.remarks) popupRows.push(['NOTE', cot.remarks]);
   if (cot.imageUrl) popupRows.push(['IMG', '<img src="' + cot.imageUrl + '" style="max-width:120px;max-height:80px;border:1px solid #00ff5e;" />']);
   
-  markers[id].bindPopup(buildPopup(cot.callsign, popupRows));
+  let popupHtml = buildPopup(cot.callsign, popupRows);
+  popupHtml += `<button onclick="window.broadcastMarkerToTak('${id}')" style="margin-top:8px;background:var(--green-mid);color:#000;border:none;padding:6px 10px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 RE-BROADCAST TO TAK</button>`;
+  
+  markers[id].bindPopup(popupHtml);
   if (Object.keys(markers).length === 1 && Object.keys(shapeOverlays).length === 0) {
     copMap.panTo(latlng, { animate: true });
   }
@@ -407,7 +509,7 @@ function processEmergencyCot(cot) {
   if (baseCallsign.includes('.')) baseCallsign = baseCallsign.split('.')[0];
   
   const id = 'EMG-' + baseId;
-  const isCancel = cot.type.endsWith('-k') || cot.type === 'b-a-o-c' || (cot.callsign || '').toLowerCase().includes('cancel') || cot.type.toLowerCase().endsWith('-cancel');
+  const isCancel = cot.type.endsWith('-k') || cot.type === 'b-a-o-c' || cot.type.includes('-c') || cot.type.toLowerCase().includes('can') || (cot.callsign || '').toLowerCase().includes('cancel') || cot.type.toLowerCase().endsWith('-cancel') || (cot.remarks || '').toLowerCase().includes('cancel') || (cot.remarks || '').toLowerCase().includes('false');
 
   if (isCancel) {
     if (markers[id]) {
@@ -509,11 +611,18 @@ function initChat() {
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } });
 }
 
-function renderChatLog(chatroom) {
+function renderChatLog(selectedView) {
   const log = document.getElementById('chat-log');
   if (!log) return;
-  const msgs = chatLogs[chatroom] || [];
   log.innerHTML = '';
+  
+  const msgs = window.allChatMessages.filter(msg => {
+    if (selectedView === 'All Chat Rooms') return true;
+    const isBroadcast = msg.chatroom === 'All Chat Rooms' || !msg.to;
+    const isRelated = msg.sender === selectedView || msg.to === selectedView || msg.chatroom === selectedView;
+    return isBroadcast || isRelated;
+  });
+
   msgs.forEach(({sender, message, timestamp, isSelf}) => {
     const ts = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     const div = document.createElement('div');
@@ -546,21 +655,17 @@ function sendChatMessage() {
   }
 }
 
-function appendChatMessage(sender, message, timestamp, isSelf, chatroom = 'All Chat Rooms') {
-  if (!chatLogs['All Chat Rooms']) chatLogs['All Chat Rooms'] = [];
-  chatLogs['All Chat Rooms'].push({sender, message, timestamp, isSelf});
-  
-  if (chatroom !== 'All Chat Rooms') {
-    if (!chatLogs[chatroom]) chatLogs[chatroom] = [];
-    chatLogs[chatroom].push({sender, message, timestamp, isSelf});
+function appendChatMessage(sender, message, timestamp, isSelf, chatroom = 'All Chat Rooms', to = null, senderUid = null, destUid = null) {
+  window.allChatMessages.push({ sender, message, timestamp, isSelf, chatroom: chatroom || 'All Chat Rooms', to: to || null, senderUid, destUid });
+
+  if (!isSelf) {
+    showTacticalBanner('💬 ' + sender + ': ' + message, 5000);
   }
 
   const sel = document.getElementById('chat-recipient');
   const currentView = sel ? sel.value : 'All Chat Rooms';
   
-  if (currentView === chatroom || currentView === 'All Chat Rooms') {
-    renderChatLog(currentView);
-  }
+  renderChatLog(currentView);
 
   // Badge and Toast when panel is closed
   if (!chatOpen && !isSelf) {

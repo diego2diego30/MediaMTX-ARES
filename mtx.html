@@ -1957,11 +1957,6 @@
     }
 
     /* Recordings Modal */
-    #recordings-modal .modal-content {
-      min-width: 320px;
-      max-width: 95vw;
-      width: 700px;
-    }
     #recordings-modal table {
       width: 100%;
       border-collapse: collapse;
@@ -3411,8 +3406,8 @@
     setTimeout(startTelemetryWs, 1000);
   </script>
 
-  <div id="recordings-modal" class="modal" style="display: none; align-items: center; justify-content: center; z-index: 10000;">
-    <div class="modal-content" style="width: 75%; max-width: 1200px; height: 75vh; box-shadow: 0 0 50px rgba(0,0,0,0.8); display: flex; flex-direction: column;">
+  <div id="recordings-modal" class="overlay" style="display: none; z-index: 10000;">
+    <div class="modal" style="width: 750px; max-width: 95vw; max-height: 80vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border: 1px solid var(--border); border-top: 3px solid var(--green-mid); background: var(--bg-card); box-shadow: 0 0 50px rgba(0,0,0,0.8);">
       <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--green-dim); background: rgba(0, 204, 74, 0.05);">
         <h3 style="font-family: var(--font-system); letter-spacing: 2px; color: var(--green-mid); margin: 0;">SERVER RECORDINGS</h3>
         <button class="btn btn-w" onclick="closeRecordingsModal()">CLOSE</button>

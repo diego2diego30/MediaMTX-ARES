@@ -647,6 +647,12 @@ function connectTAK() {
             cotObj.stale = new Date(Date.now() + 3600000).toISOString();
           }
 
+          if (cotObj.type.startsWith('t-x-m') || cotObj.type.startsWith('t-x-d')) {
+            const missionMatch = eventXml.match(/<mission[^>]*name=['"]([^'"]+)['"]/i) || eventXml.match(/mission=['"]([^'"]+)['"]/i);
+            if (missionMatch) cotObj.missionName = missionMatch[1].trim();
+            console.log(`[DataSync CoT] Mission event ${cotObj.type}: ${cotObj.missionName || cotObj.callsign}`);
+          }
+
           console.log(`[CoT Received] ${cotObj.callsign} (${cotObj.type}) at ${cotObj.lat}, ${cotObj.lon}`);
           cotCache.set(cotObj.uid, cotObj);
           broadcast([cotObj]);
@@ -656,8 +662,19 @@ function connectTAK() {
         let chatSenderMatch = eventXml.match(/senderCallsign=['"]([^'"]+)['"]/);
         let chatroomMatch = eventXml.match(/chatroom=['"]([^'"]+)['"]/);
         let remarkToMatch = eventXml.match(/to=['"]([^'"]+)['"]/);
+        let uid0Match = eventXml.match(/uid0=['"]([^'"]+)['"]/);
+        let uid1Match = eventXml.match(/uid1=['"]([^'"]+)['"]/);
         if (typeMatch && typeMatch[1] === 'b-t-f' && remarksMatch) {
-          broadcast({ type: 'chat', sender: chatSenderMatch ? chatSenderMatch[1] : 'TAK', message: remarksMatch[1], timestamp: new Date().toISOString(), chatroom: chatroomMatch ? chatroomMatch[1] : 'All Chat Rooms', to: remarkToMatch ? remarkToMatch[1] : null });
+          broadcast({
+            type: 'chat',
+            sender: chatSenderMatch ? chatSenderMatch[1] : 'TAK',
+            message: remarksMatch[1],
+            timestamp: new Date().toISOString(),
+            chatroom: chatroomMatch ? chatroomMatch[1] : 'All Chat Rooms',
+            to: remarkToMatch ? remarkToMatch[1] : null,
+            senderUid: uid0Match ? uid0Match[1] : null,
+            destUid: uid1Match ? uid1Match[1] : null
+          });
         }
         
         if (typeMatch && typeMatch[1] === 't-x-takp-v') {
@@ -801,6 +818,16 @@ setInterval(broadcastVideoAliasCots, 30000);
 // Also call immediately after a brief delay to let TAK connect first
 setTimeout(broadcastVideoAliasCots, 8000);
 
+function hexToArgbInt(hex, opacity = 0.35) {
+  let c = (hex || '').replace('#', '');
+  if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+  const r = parseInt(c.substring(0, 2), 16) || 0;
+  const g = parseInt(c.substring(2, 4), 16) || 255;
+  const b = parseInt(c.substring(4, 6), 16) || 94;
+  const a = Math.round(Math.max(0, Math.min(1, opacity)) * 255);
+  return ((a << 24) | (r << 16) | (g << 8) | b) >> 0;
+}
+
 const cotCache = new Map();
 setInterval(() => {
   const now = Date.now();
@@ -878,6 +905,24 @@ wss.on('connection', (ws) => {
           takClient.write(cotXml);
           console.log(`[CoT PUSH] Target ${callsign} (${uid}) broadcast to TAK Server.`);
         }
+      } else if (data.cmd === 'push_drone_cot') {
+        const uid = data.id || `drone-${Date.now()}`;
+        const callsign = data.callsign || 'ARES-DRONE';
+        const lat = data.lat || 0;
+        const lon = data.lon || 0;
+        const alt = data.alt || 100;
+        const now = new Date();
+        const stale = new Date(now.getTime() + 10 * 60 * 1000);
+        const streamName = (data.stream_id || callsign.replace(/^MTX-/i, '').toLowerCase());
+        const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
+        const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
+        const hlsUrl = `https://${publicHost}/${streamName}/index.m3u8`;
+        
+        const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="a-f-A-M-F-Q-r" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g"><point lat="${lat}" lon="${lon}" hae="${alt}" ce="10" le="10"/><detail><uid Droid="${callsign}"/><contact callsign="${callsign}"/><__video url="${hlsUrl}" uid="${uid}"><ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${streamName}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/></__video><remarks>ARES MediaMTX Live Drone (${callsign})</remarks></detail></event>`;
+        if (takClient && !takClient.destroyed) {
+          takClient.write(cotXml);
+          console.log(`[Drone Broadcast] ${callsign} (${uid}) sent to TAK Server at ${lat}, ${lon}`);
+        }
       } else if (data.cmd === 'push_marker_cot') {
         const uid = data.uid || `marker-${Date.now()}`;
         const lat = data.lat;
@@ -886,7 +931,14 @@ wss.on('connection', (ws) => {
         const cotType = data.type || 'b-m-p-s-m';
         const now = new Date();
         const stale = new Date(now.getTime() + 30 * 60 * 1000);
-        const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Created from ARES COP</remarks></detail></event>`;
+        
+        let detailTags = `<contact callsign="${callsign}"/><remarks>Created from ARES COP</remarks>`;
+        if (data.color) {
+          const colorVal = hexToArgbInt(data.color, 1.0);
+          detailTags += `<color value="${colorVal}"/>`;
+        }
+        
+        const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail>${detailTags}</detail></event>`;
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
           console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server.`);
@@ -916,8 +968,12 @@ wss.on('connection', (ws) => {
           detailTags += links.join('');
         }
         
-        // Add styling (green)
-        detailTags += `<strokeColor value="-16711936"/><fillColor value="-16711936"/><strokeWeight value="3.0"/>`;
+        // Add styling
+        let strokeColorVal = hexToArgbInt(data.color || '#00ff00', 1.0);
+        let fillColorVal = hexToArgbInt(data.color || '#00ff00', data.opacity !== undefined ? data.opacity : 0.35);
+        let strokeWeightVal = data.weight || 3.0;
+        
+        detailTags += `<strokeColor value="${strokeColorVal}"/><fillColor value="${fillColorVal}"/><strokeWeight value="${strokeWeightVal}"/>`;
         
         const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Drawn from ARES COP</remarks>${detailTags}</detail></event>`;
         
@@ -942,7 +998,16 @@ wss.on('connection', (ws) => {
           takClient.write(cotXml);
           console.log(`[GeoChat PUSH] "${message}" from ${sender} to ${recipientCallsign} sent to TAK.`);
         }
-        broadcast({ type: 'chat', sender, message, timestamp: now.toISOString() });
+        broadcast({
+          type: 'chat',
+          sender: sender,
+          message: message,
+          timestamp: now.toISOString(),
+          chatroom: recipientCallsign || 'All Chat Rooms',
+          to: recipientUid || null,
+          senderUid: 'ARES-WERX-COP',
+          destUid: recipientUid || null
+        });
       } else if (data.cmd === 'push_cot_raw') {
         if (data.xml && takClient && !takClient.destroyed) {
           takClient.write(data.xml);
