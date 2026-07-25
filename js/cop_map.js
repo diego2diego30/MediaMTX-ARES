@@ -157,7 +157,38 @@ function initCopMap() {
     'Carto Dark': cartoDark
   };
   const overlayMaps = { 'Camp Lejeune MBTiles': localTiles };
-  L.control.layers(baseMaps, overlayMaps, { position: 'bottomleft' }).addTo(copMap);
+  const layerControl = L.control.layers(baseMaps, overlayMaps, { position: 'bottomleft' }).addTo(copMap);
+  
+  // Append Center-on-Location button directly inside Map Menu Overlay
+  const layerContainer = layerControl.getContainer();
+  if (layerContainer) {
+    const locBtnDiv = document.createElement('div');
+    locBtnDiv.style.cssText = 'margin-top:6px; padding-top:6px; border-top:1px solid var(--green-dim, #0f4020); text-align:center;';
+    locBtnDiv.innerHTML = '<button onclick="window.centerOnCurrentLocation()" style="width:100%; background:var(--green-bright, #00ff5e); color:#000; border:none; padding:6px 10px; font-weight:bold; cursor:pointer; border-radius:2px; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px; font-family:var(--font-mono);">🎯 MY LOCATION</button>';
+    layerContainer.appendChild(locBtnDiv);
+  }
+
+  // Floating Location Quick-Control Button on Map
+  const LocationControl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function() {
+      const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control tactical-location-control');
+      const btn = L.DomUtil.create('a', 'leaflet-control-location-btn', container);
+      btn.href = '#';
+      btn.title = 'Center Map on Current Location';
+      btn.innerHTML = '🎯';
+      btn.style.cssText = 'display:flex; align-items:center; justify-content:center; width:34px; height:34px; background:#050f08; color:var(--green-bright); border:1px solid var(--green-mid); border-radius:4px; font-size:18px; text-decoration:none; cursor:pointer; box-shadow:0 0 10px rgba(0,255,94,0.3);';
+
+      L.DomEvent.on(btn, 'click', function(e) {
+        L.DomEvent.preventDefault(e);
+        L.DomEvent.stopPropagation(e);
+        window.centerOnCurrentLocation();
+      });
+
+      return container;
+    }
+  });
+  copMap.addControl(new LocationControl());
 
   // Leaflet Draw (COP-created shapes)
   const drawnItems = new L.FeatureGroup();
@@ -1197,6 +1228,48 @@ function initCopUserLocation() {
     );
   }
 }
+
+// ── Center Map on Current Geolocation ─────────────────────────────
+window.centerOnCurrentLocation = function() {
+  if (markers['_self']) {
+    const latlng = markers['_self'].getLatLng();
+    copMap.flyTo(latlng, 16, { animate: true, duration: 1.2 });
+    showTacticalBanner('🎯 CENTERED ON CURRENT LOCATION (' + latlng.lat.toFixed(4) + ', ' + latlng.lng.toFixed(4) + ')');
+    if (typeof markers['_self'].openTooltip === 'function') markers['_self'].openTooltip();
+    return;
+  }
+  
+  if (navigator.geolocation) {
+    showTacticalBanner('🛰️ ACQUIRING GPS LOCATION...');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const latlng = [latitude, longitude];
+        const selfIcon = L.divIcon({
+          className: '',
+          html: '<div style="width:14px;height:14px;background:#00ccff;border:3px solid #fff;border-radius:50%;box-shadow:0 0 10px #00ccff;"></div>',
+          iconSize: [14, 14],
+          iconAnchor: [7, 7]
+        });
+        if (!markers['_self']) {
+          markers['_self'] = L.marker(latlng, { icon: selfIcon }).addTo(copMap);
+          markers['_self'].bindTooltip('ARES COP (YOU)', { permanent: true, direction: 'top', className: 'tactical-map-label' });
+        } else {
+          markers['_self'].setLatLng(latlng);
+        }
+        copMap.flyTo(latlng, 16, { animate: true, duration: 1.2 });
+        showTacticalBanner('🎯 CENTERED ON CURRENT LOCATION (' + latitude.toFixed(4) + ', ' + longitude.toFixed(4) + ')');
+      },
+      (err) => {
+        console.warn('Geolocation error:', err.message);
+        showTacticalBanner('⚠️ GEOLOCATION DENIED OR UNAVAILABLE');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  } else {
+    showTacticalBanner('⚠️ GEOLOCATION NOT SUPPORTED BY BROWSER');
+  }
+};
 
 // ── Map Upload ────────────────────────────────────────────────────
 window.handleMapUpload = async function(event) {
