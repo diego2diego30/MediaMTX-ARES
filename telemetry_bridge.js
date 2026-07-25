@@ -446,12 +446,10 @@ const httpServer = http.createServer((req, res) => {
       path: '/Marti/sync/search',
       method: 'GET',
       headers: { 'Accept': 'application/json' },
-      rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true'
+      rejectUnauthorized: false
     };
     if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
     if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
-    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
-    if (process.env.TAK_TLS_SERVERNAME) tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
     
     const proxyReq = https.request(tlsOptions, (proxyRes) => {
       let data = '';
