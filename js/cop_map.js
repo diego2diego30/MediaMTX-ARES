@@ -103,7 +103,59 @@ function initCopMap() {
     }
   });
   copMap.addControl(drawControl);
-  copMap.on(L.Draw.Event.CREATED, e => drawnItems.addLayer(e.layer));
+  copMap.on(L.Draw.Event.CREATED, e => {
+    const layer = e.layer;
+    drawnItems.addLayer(layer);
+    
+    layer._copId = `COP-Shape-${Date.now()}`;
+    window.drawnShapes = window.drawnShapes || {};
+    window.drawnShapes[layer._copId] = { layer, type: e.layerType };
+    
+    const popupContent = `
+      <div style="font-family: var(--font-main);">
+        <strong style="color:var(--green-bright)">Drawn ${e.layerType.toUpperCase()}</strong><br>
+        <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:5px; background:var(--green-mid); color:#000; border:none; padding:4px 8px; cursor:pointer; font-weight:bold; border-radius:2px; width:100%;">BROADCAST TO TAK</button>
+      </div>
+    `;
+    layer.bindPopup(popupContent).openPopup();
+  });
+
+  window.broadcastShape = function(id) {
+    if (!window.drawnShapes || !window.drawnShapes[id]) return;
+    const item = window.drawnShapes[id];
+    const layer = item.layer;
+    
+    let payload = { cmd: 'push_shape_cot', uid: id, callsign: id };
+    
+    if (item.type === 'marker') {
+      const ll = layer.getLatLng();
+      payload.cmd = 'push_marker_cot';
+      payload.lat = ll.lat;
+      payload.lon = ll.lng;
+    } else if (item.type === 'circle') {
+      const ll = layer.getLatLng();
+      payload.shapeType = 'circle';
+      payload.lat = ll.lat;
+      payload.lon = ll.lng;
+      payload.radius = layer.getRadius();
+    } else if (item.type === 'polygon' || item.type === 'rectangle' || item.type === 'polyline') {
+      const latlngs = layer.getLatLngs();
+      // Handle nested arrays for polygons vs polylines
+      const points = Array.isArray(latlngs[0]) ? latlngs[0] : latlngs;
+      payload.shapeType = item.type;
+      // Use the first point as the anchor lat/lon for the CoT
+      payload.lat = points[0].lat;
+      payload.lon = points[0].lng;
+      payload.vertices = points.map(p => ({ lat: p.lat, lon: p.lng }));
+    }
+    
+    if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+      wsTelemetry.send(JSON.stringify(payload));
+      alert('Broadcasted to TAK Server!');
+    } else {
+      alert('Cannot broadcast: Telemetry disconnected.');
+    }
+  };
 
   // Stale shape cleanup every 30s
   setInterval(pruneStaleShapes, 30000);
@@ -127,6 +179,23 @@ function connectTelemetry() {
       const data = JSON.parse(event.data);
       if (Array.isArray(data)) {
         processCotData(data);
+      } else if (data.type === 'tak_status') {
+        const statusEl = document.getElementById('tak-status-text');
+        const hostEl = document.getElementById('tak-server-host');
+        const versionEl = document.getElementById('tak-server-version');
+        if (statusEl && hostEl && versionEl) {
+          if (data.connected) {
+            statusEl.textContent = 'CONNECTED';
+            statusEl.style.color = 'var(--green-bright)';
+            hostEl.textContent = `Host: ${data.host}`;
+            versionEl.textContent = `Version: ${data.version}`;
+          } else {
+            statusEl.textContent = 'DISCONNECTED';
+            statusEl.style.color = 'var(--red-bright)';
+            hostEl.textContent = 'Waiting for connection...';
+            versionEl.textContent = '';
+          }
+        }
       } else if (data.type === 'chat') {
         appendChatMessage(data.sender, data.message, data.timestamp, false);
       } else if (data.lat && data.lon) {

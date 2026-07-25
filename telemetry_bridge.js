@@ -505,6 +505,13 @@ function startFfmpegExtraction(pathName) {
 // ------------------------------------------------------------------
 let takClient = null;
 let cotBuffer = '';
+let takServerConnected = false;
+let takServerHostAddress = '';
+let takServerVersion = 'Unknown';
+
+function broadcastTakStatus() {
+  broadcast({ type: 'tak_status', connected: takServerConnected, host: takServerHostAddress, version: takServerVersion });
+}
 
 function connectTAK() {
   if (takClient) {
@@ -535,13 +542,19 @@ function connectTAK() {
     }
     takClient = tls.connect(takPort, takHost, tlsOptions, () => {
       console.log(`Connected to TAK Server on ${takHost}:${takPort} (TLS)`);
+      takServerConnected = true;
+      takServerHostAddress = `${takHost}:${takPort}`;
+      broadcastTakStatus();
       sendPing();
       pingInterval = setInterval(sendPing, 30000);
     });
   } else {
     takClient = new net.Socket();
     takClient.connect(takPort, takHost, () => {
-      console.log(`Connected to TAK Server on ${takHost}:${takPort}`);
+      console.log(`Connected to TAK Server on ${takHost}:${takPort} (TCP)`);
+      takServerConnected = true;
+      takServerHostAddress = `${takHost}:${takPort}`;
+      broadcastTakStatus();
       sendPing();
       pingInterval = setInterval(sendPing, 30000);
     });
@@ -622,6 +635,14 @@ function connectTAK() {
           broadcast({ type: 'chat', sender: chatSenderMatch ? chatSenderMatch[1] : 'TAK', message: remarksMatch[1], timestamp: new Date().toISOString() });
         }
         
+        if (typeMatch && typeMatch[1] === 't-x-takp-v') {
+          const versionMatch = eventXml.match(/serverVersion=['"]([^'"]+)['"]/);
+          if (versionMatch) {
+            takServerVersion = versionMatch[1];
+            broadcastTakStatus();
+          }
+        }
+        
         startIndex = cotBuffer.indexOf('<event');
       } else {
         break;
@@ -647,6 +668,8 @@ function connectTAK() {
 
   takClient.on('close', () => {
     if (pingInterval) clearInterval(pingInterval);
+    takServerConnected = false;
+    broadcastTakStatus();
     console.log('TAK Server connection closed, reconnecting in 5s...');
     setTimeout(connectTAK, 5000);
   });
@@ -713,6 +736,9 @@ setInterval(() => {
 wss.on('connection', (ws) => {
   console.log('HUD Client connected.');
   
+  // Send immediate TAK status
+  ws.send(JSON.stringify({ type: 'tak_status', connected: takServerConnected, host: takServerHostAddress, version: takServerVersion }));
+
   // Send all cached CoTs to the new client immediately
   const cached = Array.from(cotCache.values());
   if (cached.length > 0) {
@@ -779,6 +805,37 @@ wss.on('connection', (ws) => {
           takClient.write(cotXml);
           console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server.`);
         }
+        broadcast([{ uid, type: cotType, lat, lon, callsign }]);
+      } else if (data.cmd === 'push_shape_cot') {
+        const uid = data.uid || `shape-${Date.now()}`;
+        const lat = data.lat;
+        const lon = data.lon;
+        const callsign = data.callsign || 'COP-SHAPE';
+        const now = new Date();
+        const stale = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour stale
+        
+        let cotType = 'u-d-f'; // Default to freehand/polygon
+        let detailTags = '';
+        
+        if (data.shapeType === 'circle' && data.radius) {
+          cotType = 'u-d-c';
+          detailTags += `<ellipse major="${data.radius}" minor="${data.radius}" angle="0.0"/>`;
+        } else if (data.vertices && data.vertices.length > 0) {
+          // Polygon, rectangle, or polyline
+          const links = data.vertices.map(v => `<link point="${v.lat},${v.lon}"/>`).join('');
+          detailTags += links;
+        }
+        
+        // Add styling (green)
+        detailTags += `<strokeColor value="-16711936"/><fillColor value="-16711936"/><strokeWeight value="3.0"/>`;
+        
+        const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Drawn from ARES COP</remarks>${detailTags}</detail></event>`;
+        
+        if (takClient && !takClient.destroyed) {
+          takClient.write(cotXml);
+          console.log(`[CoT PUSH] Shape ${callsign} (${uid}) sent to TAK Server.`);
+        }
+        // Broadcast back to clients so they know it was sent successfully
         broadcast([{ uid, type: cotType, lat, lon, callsign }]);
       } else if (data.cmd === 'push_geochat') {
         const sender = data.senderCallsign || 'ARES-COP';
