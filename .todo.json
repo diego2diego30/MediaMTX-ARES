@@ -1,0 +1,27 @@
+[
+  {
+    "content": "Read diagnostic screenshot for context",
+    "active_form": "Reading diagnostic screenshot",
+    "status": "completed"
+  },
+  {
+    "content": "Explore local MediaMTX ARES folder structure and config files",
+    "active_form": "Exploring local folder structure and config files",
+    "status": "completed"
+  },
+  {
+    "content": "Fix [object Object] dropdown bug in fetchRemoteTakMissions()",
+    "active_form": "Fixing [object Object] dropdown bug in COP UI",
+    "status": "completed"
+  },
+  {
+    "content": "Diagnose: marker streaming gap, video stream TAK binding, config gaps",
+    "active_form": "Identifying root causes of 3 issues",
+    "status": "completed"
+  },
+  {
+    "content": "Create comprehensive analysis and fix report",
+    "active_form": "Creating comprehensive analysis and fix report",
+    "status": "completed"
+  }
+]
