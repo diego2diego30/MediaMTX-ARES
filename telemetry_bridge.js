@@ -466,7 +466,7 @@ klvSocket.on('message', (msg) => {
          if (takClient && !takClient.destroyed && (now - lastKlvCotPush > 3000)) {
            lastKlvCotPush = now;
            const cotNow = new Date();
-           const cotStale = new Date(cotNow.getTime() + 10000); // 10s stale
+           const cotStale = new Date(cotNow.getTime() + 60000); // 60s stale
            const cotUid = `mtx-uas-${streamId}`;
            const cotCallsign = `MTX-${streamId.toUpperCase()}`;
            const cotLat = parseFloat(lat.toFixed(6));
@@ -476,7 +476,7 @@ klvSocket.on('message', (msg) => {
            const cotSpeed = 0; // KLV doesn't provide ground speed in this parse
 
            const videoUrl = `rtsp://ares-werx.com:8554/${streamId}`;
-           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" ConnectionEntry="ARES Video Server"/><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" ConnectionEntry="ARES Video Server"/><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
            takClient.write(cotXml);
            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
@@ -600,7 +600,11 @@ function connectTAK() {
           const remarksRaw = eventXml.match(/<remarks[^>]*>([^<]*)<\/remarks>/);
           if (remarksRaw && remarksRaw[1].trim()) cotObj.remarks = remarksRaw[1].trim();
 
+          const staleMatch = eventXml.match(/stale=['"]([^'"]+)['"]/);
+          if (staleMatch) cotObj.stale = staleMatch[1];
+
           console.log(`[CoT Received] ${cotObj.callsign} (${cotObj.type}) at ${cotObj.lat}, ${cotObj.lon}`);
+          cotCache.set(cotObj.uid, cotObj);
           broadcast([cotObj]);
         }
         
@@ -686,8 +690,24 @@ function pollMediaMtxForKlv() {
 
 pollInterval = setInterval(pollMediaMtxForKlv, 2000);
 
+const cotCache = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [uid, cot] of cotCache.entries()) {
+    if (cot.stale && new Date(cot.stale).getTime() < now) {
+      cotCache.delete(uid);
+    }
+  }
+}, 30000);
+
 wss.on('connection', (ws) => {
   console.log('HUD Client connected.');
+  
+  // Send all cached CoTs to the new client immediately
+  const cached = Array.from(cotCache.values());
+  if (cached.length > 0) {
+    ws.send(JSON.stringify(cached));
+  }
   
   if (!activeExtractPath && !simInterval && allowSimulation) {
     simInterval = setInterval(() => {

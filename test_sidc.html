@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://unpkg.com/milsymbol/dist/milsymbol.js"></script>
+</head>
+<body>
+  <script>
+    try {
+      const sym = new ms.Symbol('SFGP-------');
+      console.log("Success:", sym.asSVG() ? "SVG generated" : "No SVG");
+    } catch(e) {
+      console.error("Error:", e);
+    }
+  </script>
+</body>
+</html>
