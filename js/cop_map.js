@@ -1,138 +1,153 @@
+// ─────────────────────────────────────────────────────────────────
+//  ARES COP — Map Controller
+//  Features: Satellite layers, full CoT type support, TAK shapes,
+//            shape rendering, TAK OBJECTS sidebar, GeoChat panel.
+// ─────────────────────────────────────────────────────────────────
+
 let copMap;
-let markers = {};
+let markers = {};        // point markers keyed by uid
+let shapeOverlays = {};  // polygon/circle/polyline layers keyed by uid
 window.trackData = {};
 let wsTelemetry;
 let wsReconnectTimer;
+let chatUnread = 0;
+let chatOpen = false;
 
+// ── Icons ─────────────────────────────────────────────────────────
 const UAS_ICON = L.icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
 });
 
-const COT_ICON = L.icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+const EMERGENCY_ICON = L.divIcon({
+  className: 'emergency-icon',
+  html: '<div class="emer-pulse">🚨</div>',
+  iconSize: [30, 30], iconAnchor: [15, 15]
 });
 
+// ── Color helper: signed 32-bit ARGB int → CSS rgba ───────────────
+function argbToCss(argbInt, alphaOverride) {
+  const u = (argbInt >>> 0);
+  const a = alphaOverride !== undefined ? alphaOverride : ((u >> 24) & 0xff) / 255;
+  const r = (u >> 16) & 0xff;
+  const g = (u >> 8)  & 0xff;
+  const b = u & 0xff;
+  return `rgba(${r},${g},${b},${a.toFixed(2)})`;
+}
+
+// ── Default shape style ────────────────────────────────────────────
+function shapeStyle(cot) {
+  const stroke = cot.strokeColor !== undefined ? argbToCss(cot.strokeColor) : '#00ff5e';
+  const fill   = cot.fillColor   !== undefined ? argbToCss(cot.fillColor, 0.15) : 'rgba(0,255,94,0.10)';
+  const weight = cot.strokeWeight || 2;
+  return { color: stroke, fillColor: fill, fillOpacity: 0.15, weight, opacity: 0.85, className: 'tak-shape' };
+}
+
+// ── Popup builder ──────────────────────────────────────────────────
+function buildPopup(title, rows) {
+  const inner = rows.map(([k, v]) => `<strong style="color:#fff">${k}:</strong> ${v}`).join('<br>');
+  return `<div style="background:rgba(0,0,0,0.85);padding:6px 8px;border-radius:4px;line-height:1.6;border:1px solid var(--green-bright)">
+    <strong style="color:var(--green-bright);font-size:13px;text-shadow:0 0 5px var(--green-bright)">${title}</strong><br>${inner}
+  </div>`;
+}
+
+// ── Map Init ──────────────────────────────────────────────────────
 function initCopMap() {
   copMap = L.map('cop-map-container', { zoomControl: false }).setView([34.665, -77.55], 13);
-  
   L.control.zoom({ position: 'bottomleft' }).addTo(copMap);
 
-  // CartoDB Dark Base (World background)
+  // Base layers
   const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; CartoDB',
-    subdomains: 'abcd',
-    maxZoom: 20
+    attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
   }).addTo(copMap);
-  
-  // Local MBTiles (High-res overlay that scales down dynamically when zoomed out)
+
+  const esriSat = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, attribution: '&copy; Esri, USDA, USGS, AEX, GeoEye' }
+  );
+
+  const esriLabels = L.tileLayer(
+    'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, opacity: 0.85 }
+  );
+  const esriHybrid = L.layerGroup([esriSat, esriLabels]);
+
+  // Offline MBTiles overlay
   const localTiles = L.tileLayer('/tiles/{z}/{x}/{y}.png', {
-    minNativeZoom: 10,
-    maxNativeZoom: 19,
-    minZoom: 1,
-    maxZoom: 22,
-    bounds: [
-      [34.4982408, -77.6072062],
-      [34.7483673, -77.1803647]
-    ],
+    minNativeZoom: 10, maxNativeZoom: 19, minZoom: 1, maxZoom: 22,
+    bounds: [[34.4982408, -77.6072062], [34.7483673, -77.1803647]],
     attribution: 'Camp Lejeune MBTiles'
   }).addTo(copMap);
 
   const baseMaps = {
-    "Carto Dark": cartoDark
+    'Carto Dark': cartoDark,
+    'Satellite (Esri)': esriSat,
+    'Satellite + Labels': esriHybrid
   };
-
-  const overlayMaps = {
-    "Camp Lejeune MBTiles": localTiles
-  };
-
+  const overlayMaps = { 'Camp Lejeune MBTiles': localTiles };
   L.control.layers(baseMaps, overlayMaps, { position: 'bottomleft' }).addTo(copMap);
 
-  // Initialize Leaflet Draw
+  // Leaflet Draw (COP-created shapes)
   const drawnItems = new L.FeatureGroup();
   copMap.addLayer(drawnItems);
   const drawControl = new L.Control.Draw({
     position: 'topleft',
-    edit: {
-      featureGroup: drawnItems
-    },
+    edit: { featureGroup: drawnItems },
     draw: {
-      polygon: { shapeOptions: { color: '#00ff5e' } },
+      polygon:  { shapeOptions: { color: '#00ff5e' } },
       polyline: { shapeOptions: { color: '#00ff5e' } },
-      rectangle: { shapeOptions: { color: '#00ff5e' } },
-      circle: { shapeOptions: { color: '#00ff5e' } },
+      rectangle:{ shapeOptions: { color: '#00ff5e' } },
+      circle:   { shapeOptions: { color: '#00ff5e' } },
       marker: true
     }
   });
   copMap.addControl(drawControl);
+  copMap.on(L.Draw.Event.CREATED, e => drawnItems.addLayer(e.layer));
 
-  copMap.on(L.Draw.Event.CREATED, function (event) {
-    const layer = event.layer;
-    drawnItems.addLayer(layer);
-  });
+  // Stale shape cleanup every 30s
+  setInterval(pruneStaleShapes, 30000);
 }
 
+// ── Telemetry WebSocket ───────────────────────────────────────────
 function connectTelemetry() {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   let wsUrl = `${proto}//${window.location.host}/ws/`;
-  
-  if (window.location.protocol === 'file:' || window.location.port === '5500') {
-    wsUrl = `ws://localhost:8081`;
-  }
-
-  try {
-    wsTelemetry = new WebSocket(wsUrl);
-  } catch(e) {
-    wsTelemetry = new WebSocket(`ws://localhost:8081`);
-  }
+  if (window.location.protocol === 'file:' || window.location.port === '5500') wsUrl = 'ws://localhost:8081';
+  try { wsTelemetry = new WebSocket(wsUrl); }
+  catch(e) { wsTelemetry = new WebSocket('ws://localhost:8081'); }
 
   wsTelemetry.onopen = () => {
-    console.log('Connected to Telemetry Bridge.');
-    const statusText = document.getElementById('telemetry-status-text');
-    const statusContainer = document.getElementById('telemetry-status');
-    statusText.textContent = 'RX CONNECTED';
-    statusContainer.classList.remove('disconnected');
+    document.getElementById('telemetry-status-text').textContent = 'RX CONNECTED';
+    document.getElementById('telemetry-status').classList.remove('disconnected');
   };
 
   wsTelemetry.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      
-      // Data can be a single KLV point or an array of CoT markers
       if (Array.isArray(data)) {
         processCotData(data);
+      } else if (data.type === 'chat') {
+        appendChatMessage(data.sender, data.message, data.timestamp, false);
       } else if (data.lat && data.lon) {
         processKlvData(data);
       }
     } catch(e) {
-      console.error("Failed to parse telemetry frame", e);
+      console.error('Failed to parse telemetry frame', e);
     }
   };
 
   wsTelemetry.onclose = () => {
-    console.log('Disconnected from Telemetry Bridge.');
-    const statusText = document.getElementById('telemetry-status-text');
-    const statusContainer = document.getElementById('telemetry-status');
-    statusText.textContent = 'DISCONNECTED';
-    statusContainer.classList.add('disconnected');
-    
+    document.getElementById('telemetry-status-text').textContent = 'DISCONNECTED';
+    document.getElementById('telemetry-status').classList.add('disconnected');
     wsTelemetry = null;
     clearTimeout(wsReconnectTimer);
     wsReconnectTimer = setTimeout(connectTelemetry, 2000);
   };
 }
 
+// ── KLV / Drone feed ─────────────────────────────────────────────
 function processKlvData(data) {
-  // If a video is playing and this KLV data is from a different stream, ignore it and remove its marker
   if (window.activePipStream && data.stream_id && data.stream_id !== window.activePipStream) {
     if (markers['klv-drone-' + data.stream_id]) {
       copMap.removeLayer(markers['klv-drone-' + data.stream_id]);
@@ -140,286 +155,339 @@ function processKlvData(data) {
     }
     return;
   }
-
   const id = 'klv-drone-' + (data.stream_id || '1');
   const latlng = [parseFloat(data.lat), parseFloat(data.lon)];
-  
+  const callsign = data.stream_id === 'demo' ? 'DEMO DRONE' : (data.stream_id || 'KLV DRONE').toUpperCase();
   if (!markers[id]) {
     markers[id] = L.marker(latlng, { icon: UAS_ICON }).addTo(copMap);
-    
-    // Add legible permanent map label
-    const callsign = data.stream_id === 'demo' ? 'DEMO DRONE' : (data.stream_id || 'KLV DRONE').toUpperCase();
-    markers[id].bindTooltip(callsign, {
-      permanent: true,
-      direction: 'bottom',
-      offset: [0, 10],
-      className: 'tactical-map-label'
-    });
-
-    // Bind click event to open PiP Video
-    markers[id].on('click', () => {
-      openPip(callsign, data.stream_id || 'demo');
-    });
+    markers[id].bindTooltip(callsign, { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tactical-map-label' });
+    markers[id].on('click', () => openPip(callsign, data.stream_id || 'demo'));
   } else {
     markers[id].setLatLng(latlng);
   }
-  
-  const popupHtml = `
-    <div style="background: rgba(0,0,0,0.8); padding: 5px; border-radius: 4px; line-height: 1.5; letter-spacing: 0.5px; border: 1px solid var(--green-bright);">
-      <strong style="color:var(--green-bright); font-size: 14px; text-shadow: 0 0 5px var(--green-bright);">${(data.stream_id === 'demo' ? 'DEMO DRONE' : (data.stream_id || 'KLV DRONE').toUpperCase())}</strong><br>
-      <strong style="color:#fff;">LAT:</strong> ${data.lat}<br>
-      <strong style="color:#fff;">LON:</strong> ${data.lon}<br>
-      <strong style="color:#fff;">ALT:</strong> ${data.alt} m
-    </div>
-  `;
-  markers[id].bindPopup(popupHtml);
-  
-  // Only pan if it's the only marker
-  if (Object.keys(markers).length === 1) {
-    copMap.panTo(latlng, { animate: true, duration: 0.5 });
-  }
-
-  // Update track data for sidebar
+  markers[id].bindPopup(buildPopup(callsign, [['LAT', data.lat], ['LON', data.lon], ['ALT', `${data.alt} m`]]));
+  if (Object.keys(markers).length === 1) copMap.panTo(latlng, { animate: true });
   window.trackData[id] = { id, callsign, lat: data.lat, lon: data.lon, type: 'UAS FEED' };
 }
 
+// ── SIDC mapper ───────────────────────────────────────────────────
 function cotToSidc(cotType) {
-  if (!cotType) return 'SFG-UCI----'; 
-  
-  if (cotType.startsWith('b-m')) {
-    return 'GUGPGPRP--****X'; // Reference Point Marker
-  }
-  
+  if (!cotType) return 'SFG-UCI----';
+  if (cotType.startsWith('b-m')) return 'GUGPGPRP--****X';
   const parts = cotType.split('-');
   if (parts.length < 3) return 'SFG-UCI----';
-  
-  let affiliation = 'U'; 
-  if (parts[1] === 'f') affiliation = 'F';
-  if (parts[1] === 'h') affiliation = 'H';
-  if (parts[1] === 'n') affiliation = 'N';
-  
-  let dimension = 'Z';
-  if (parts[2] === 'G') dimension = 'G'; 
-  if (parts[2] === 'A') dimension = 'A'; 
-  if (parts[2] === 'S') dimension = 'S'; 
-  if (parts[2] === 'U') dimension = 'U'; 
-  
-  if (dimension === 'A' && parts.length > 3 && parts[3] === 'U') {
-    return `S${affiliation}APMFQ--------`; // UAV
-  }
-  
-  return `S${affiliation}${dimension}P-------`; 
+  const af = { f:'F', h:'H', n:'N', a:'A' }[parts[1]] || 'U';
+  const dm = { G:'G', A:'A', S:'S', U:'U' }[parts[2]] || 'Z';
+  if (dm === 'A' && parts.length > 3 && parts[3] === 'U') return `S${af}APMFQ--------`;
+  return `S${af}${dm}P-------`;
 }
 
+// ── Main CoT dispatcher ───────────────────────────────────────────
 function processCotData(cotArray) {
   cotArray.forEach(cot => {
-    const id = cot.uid;
-    const latlng = [cot.lat, cot.lon];
-    
-    const sidc = cotToSidc(cot.type);
-
-    // Omit uniqueDesignation so the dark embedded text is removed
-    const sym = new ms.Symbol(sidc, { size: 25 });
-    const symIcon = L.divIcon({
-      className: '',
-      html: sym.asSVG(),
-      iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
-      popupAnchor: [0, -sym.getAnchor().y]
-    });
-    
-    if (!markers[id]) {
-      markers[id] = L.marker(latlng, { icon: symIcon }).addTo(copMap);
-      
-      markers[id].bindTooltip(cot.callsign, {
-        permanent: true,
-        direction: 'bottom',
-        offset: [0, 10],
-        className: 'tactical-map-label'
-      });
-    } else {
-      markers[id].setLatLng(latlng);
-      markers[id].setIcon(symIcon);
-    }
-    
-    const isMtxVideo = cot.uid && cot.uid.startsWith('mtx-uas-');
-    const streamId = isMtxVideo ? cot.uid.replace('mtx-uas-', '') : null;
-    const videoLink = isMtxVideo
-      ? `<br><a href="#" onclick="openPip('${cot.callsign}', '${streamId}'); return false;" style="color:#00e5ff; text-decoration:none; font-weight:bold; cursor:pointer;">📹 Open Video Feed</a>`
-      : '';
-
-    const popupHtml = `
-      <div style="background: rgba(0,0,0,0.8); padding: 5px; border-radius: 4px; line-height: 1.5; letter-spacing: 0.5px; border: 1px solid var(--green-bright);">
-        <strong style="color:var(--green-bright); font-size: 14px; text-shadow: 0 0 5px var(--green-bright);">${cot.callsign}</strong><br>
-        <strong style="color:#fff;">TYPE:</strong> ${cot.type}${isMtxVideo ? ' <span style="color:#00e5ff;">[VIDEO SERVER]</span>' : ''}<br>
-        <strong style="color:#fff;">LAT:</strong> ${cot.lat.toFixed(5)}<br>
-        <strong style="color:#fff;">LON:</strong> ${cot.lon.toFixed(5)}${videoLink}
-      </div>
-    `;
-    markers[id].bindPopup(popupHtml);
-
-    // Auto-center map on first incoming TAK marker if map is still at default view
-    if (Object.keys(markers).length === 1) {
-      copMap.panTo(latlng, { animate: true, duration: 0.5 });
-    }
-
-    let trackType = 'GROUND UNIT';
-    if (cot.type && cot.type === 'a-f-A-M-F-Q') trackType = 'VIDEO FEED';
-    else if (cot.type && cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
-    if (cot.type && cot.type.startsWith('b-m')) trackType = 'MARKER';
-    
-    // Update track data for sidebar
-    window.trackData[id] = { id, callsign: cot.callsign, lat: cot.lat, lon: cot.lon, type: trackType };
+    if (!cot.type) return;
+    if (cot.type.startsWith('u-d-'))      processShapeCot(cot);
+    else if (cot.type === 'b-m-r')        processRouteCot(cot);
+    else if (cot.type.startsWith('b-a-')) processEmergencyCot(cot);
+    else                                   processPointCot(cot);
   });
 }
 
-// ------------------------------------------------------------------
-// MediaMTX Sidebar & Demo Control Panel Interaction
-// ------------------------------------------------------------------
-window.addEventListener('DOMContentLoaded', () => {
-  const sidebar = document.getElementById('cop-sidebar');
-  const toggleBtn = document.getElementById('sidebar-toggle');
-  
-  toggleBtn.addEventListener('click', () => {
-    const isCollapsed = sidebar.classList.toggle('collapsed');
-    toggleBtn.textContent = isCollapsed ? '◀ MENU' : 'MENU ▶';
+// ── Point entity (a-*, b-m-p-*, etc.) ────────────────────────────
+function processPointCot(cot) {
+  const id = cot.uid;
+  const latlng = [cot.lat, cot.lon];
+  const sidc = cotToSidc(cot.type);
+  const sym = new ms.Symbol(sidc, { size: 25 });
+  const symIcon = L.divIcon({
+    className: '',
+    html: sym.asSVG(),
+    iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
+    popupAnchor: [0, -sym.getAnchor().y]
   });
+  if (!markers[id]) {
+    markers[id] = L.marker(latlng, { icon: symIcon }).addTo(copMap);
+    markers[id].bindTooltip(cot.callsign, { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tactical-map-label' });
+  } else {
+    markers[id].setLatLng(latlng);
+    markers[id].setIcon(symIcon);
+  }
+  markers[id].bindPopup(buildPopup(cot.callsign, [
+    ['TYPE', cot.type],
+    ['LAT',  cot.lat.toFixed(5)],
+    ['LON',  cot.lon.toFixed(5)],
+    ...(cot.remarks ? [['NOTE', cot.remarks]] : [])
+  ]));
+  if (Object.keys(markers).length === 1 && Object.keys(shapeOverlays).length === 0) {
+    copMap.panTo(latlng, { animate: true });
+  }
+  let trackType = 'GROUND UNIT';
+  if (cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
+  if (cot.type.startsWith('b-m')) trackType = 'MARKER';
+  window.trackData[id] = { id, callsign: cot.callsign, lat: cot.lat, lon: cot.lon, type: trackType, stale: cot.stale };
+}
 
-  // Poll MediaMTX Active Paths
-  function pollMediaMtxStreams() {
-    const apiHost = window.location.protocol === 'file:' || window.location.port === '5500' 
-      ? 'http://localhost:8080' 
-      : '';
-    fetch(`${apiHost}/api/v3/paths/list`)
-      .then(res => res.json())
-      .then(data => {
-        const streamList = document.getElementById('sidebar-streams-list');
-        const items = data.items || [];
-        
-        const activeItems = items.filter(i => i.ready);
-        if (activeItems.length === 0) {
-          streamList.innerHTML = '<div class="stream-item empty">No active streams found</div>';
-          return;
-        }
+// ── Shape: u-d-* ─────────────────────────────────────────────────
+function processShapeCot(cot) {
+  const id = cot.uid;
+  // Remove existing layer if present
+  if (shapeOverlays[id]) { copMap.removeLayer(shapeOverlays[id]); delete shapeOverlays[id]; }
 
-        streamList.innerHTML = '';
-        activeItems.forEach(stream => {
-          const item = document.createElement('div');
-          item.className = 'stream-item';
-          item.innerHTML = `🎥 <strong>${stream.name}</strong><br><small style="color:var(--grey-mid)">Tracks: ${(stream.tracks || []).join(', ')}</small>`;
-          item.addEventListener('click', () => {
-            const sourceLabel = stream.name === 'demo' ? 'DEMO DRONE' : stream.name.toUpperCase();
-            openPip(sourceLabel, stream.name);
-          });
-          streamList.appendChild(item);
-        });
-      })
-      .catch(() => {
-        const streamList = document.getElementById('sidebar-streams-list');
-        streamList.innerHTML = '<div class="stream-item empty">Failed to query MediaMTX API</div>';
-      });
+  const style = shapeStyle(cot);
+  const label = cot.callsign || cot.remarks || id;
+  let layer = null;
+  let trackType = 'SHAPE';
+
+  if (cot.type === 'u-d-c' && cot.ellipse) {
+    // Circle — ellipse.major = radius in meters
+    layer = L.circle([cot.lat, cot.lon], { ...style, radius: cot.ellipse.major });
+    trackType = 'CIRCLE';
+    layer.bindPopup(buildPopup(label, [['TYPE', 'Circle'], ['RADIUS', `${cot.ellipse.major.toFixed(0)} m`], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+
+  } else if (cot.type === 'u-d-r' && cot.ellipse) {
+    // Rectangle — compute corners from center + half-dimensions + bearing
+    const corners = rectCorners(cot.lat, cot.lon, cot.ellipse.major, cot.ellipse.minor, cot.ellipse.angle);
+    layer = L.polygon(corners, style);
+    trackType = 'RECTANGLE';
+    layer.bindPopup(buildPopup(label, [['TYPE', 'Rectangle'], ['LENGTH', `${cot.ellipse.major.toFixed(0)} m`], ['WIDTH', `${cot.ellipse.minor.toFixed(0)} m`], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+
+  } else if (cot.type === 'u-d-p' && cot.vertices && cot.vertices.length >= 3) {
+    layer = L.polygon(cot.vertices.map(v => [v.lat, v.lon]), style);
+    trackType = 'POLYGON';
+    layer.bindPopup(buildPopup(label, [['TYPE', 'Polygon'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+
+  } else if (cot.type === 'u-d-f' && cot.vertices && cot.vertices.length >= 2) {
+    layer = L.polyline(cot.vertices.map(v => [v.lat, v.lon]), style);
+    trackType = 'LINE';
+    layer.bindPopup(buildPopup(label, [['TYPE', 'Line'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
   }
 
+  if (layer) {
+    layer.addTo(copMap);
+    shapeOverlays[id] = layer;
+    window.trackData[id] = { id, callsign: label, lat: cot.lat, lon: cot.lon, type: trackType, stale: cot.stale, isShape: true };
+  }
+}
+
+// ── Route: b-m-r ─────────────────────────────────────────────────
+function processRouteCot(cot) {
+  const id = cot.uid;
+  if (shapeOverlays[id]) { copMap.removeLayer(shapeOverlays[id]); delete shapeOverlays[id]; }
+  if (!cot.vertices || cot.vertices.length < 2) return;
+
+  const style = shapeStyle(cot);
+  const latlngs = cot.vertices.map(v => [v.lat, v.lon]);
+  const group = L.featureGroup();
+
+  // Route line
+  L.polyline(latlngs, { ...style, weight: style.weight + 1 }).addTo(group);
+
+  // Waypoint markers
+  latlngs.forEach((ll, i) => {
+    L.circleMarker(ll, { radius: 5, color: style.color, fillColor: style.color, fillOpacity: 0.9, weight: 2 })
+      .bindTooltip(`WP${i + 1}`, { permanent: false, className: 'tactical-map-label' })
+      .addTo(group);
+  });
+
+  const label = cot.callsign || 'ROUTE';
+  group.bindPopup(buildPopup(label, [['TYPE', 'Route'], ['WAYPOINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+  group.addTo(copMap);
+  shapeOverlays[id] = group;
+  window.trackData[id] = { id, callsign: label, lat: cot.lat, lon: cot.lon, type: 'ROUTE', stale: cot.stale, isShape: true };
+}
+
+// ── Emergency: b-a-* ─────────────────────────────────────────────
+function processEmergencyCot(cot) {
+  const id = cot.uid;
+  const latlng = [cot.lat, cot.lon];
+  if (!markers[id]) {
+    markers[id] = L.marker(latlng, { icon: EMERGENCY_ICON, zIndexOffset: 1000 }).addTo(copMap);
+    markers[id].bindTooltip(cot.callsign || 'EMERGENCY', { permanent: true, direction: 'top', className: 'tactical-map-label emergency-label' });
+  } else {
+    markers[id].setLatLng(latlng);
+  }
+  markers[id].bindPopup(buildPopup('⚠ EMERGENCY', [['CALLSIGN', cot.callsign], ['TYPE', cot.type], ['LAT', cot.lat.toFixed(5)], ['LON', cot.lon.toFixed(5)]]));
+  copMap.panTo(latlng, { animate: true }); // Always pan to emergencies
+  window.trackData[id] = { id, callsign: cot.callsign || 'EMERGENCY', lat: cot.lat, lon: cot.lon, type: 'EMERGENCY' };
+}
+
+// ── Rectangle corner calculator (great-circle) ────────────────────
+function rectCorners(lat, lon, halfLen, halfWid, bearingDeg) {
+  const R = 6371000;
+  const latR = lat * Math.PI / 180;
+  const lonR = lon * Math.PI / 180;
+  const diag = Math.sqrt(halfLen * halfLen + halfWid * halfWid);
+  const offsets = [
+    bearingDeg + Math.atan2(halfWid, halfLen) * 180 / Math.PI,
+    bearingDeg + 180 - Math.atan2(halfWid, halfLen) * 180 / Math.PI,
+    bearingDeg + 180 + Math.atan2(halfWid, halfLen) * 180 / Math.PI,
+    bearingDeg - Math.atan2(halfWid, halfLen) * 180 / Math.PI
+  ];
+  return offsets.map(b => {
+    const br = b * Math.PI / 180;
+    const dr = diag / R;
+    const lat2 = Math.asin(Math.sin(latR) * Math.cos(dr) + Math.cos(latR) * Math.sin(dr) * Math.cos(br));
+    const lon2 = lonR + Math.atan2(Math.sin(br) * Math.sin(dr) * Math.cos(latR), Math.cos(dr) - Math.sin(latR) * Math.sin(lat2));
+    return [lat2 * 180 / Math.PI, lon2 * 180 / Math.PI];
+  });
+}
+
+// ── Stale shape pruning ───────────────────────────────────────────
+function pruneStaleShapes() {
+  const now = Date.now();
+  Object.entries(shapeOverlays).forEach(([id, layer]) => {
+    const td = window.trackData[id];
+    if (td && td.stale && new Date(td.stale).getTime() < now) {
+      copMap.removeLayer(layer);
+      delete shapeOverlays[id];
+      delete window.trackData[id];
+    }
+  });
+}
+
+// ── Chat ──────────────────────────────────────────────────────────
+function initChat() {
+  const toggleBtn  = document.getElementById('chat-toggle-btn');
+  const panel      = document.getElementById('chat-panel');
+  const input      = document.getElementById('chat-input');
+  const sendBtn    = document.getElementById('chat-send-btn');
+  const badge      = document.getElementById('chat-badge');
+
+  toggleBtn.addEventListener('click', () => {
+    chatOpen = !chatOpen;
+    panel.classList.toggle('open', chatOpen);
+    if (chatOpen) {
+      chatUnread = 0;
+      badge.textContent = '';
+      badge.style.display = 'none';
+    }
+  });
+
+  sendBtn.addEventListener('click', sendChatMessage);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } });
+}
+
+function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+    wsTelemetry.send(JSON.stringify({ cmd: 'push_geochat', senderCallsign: 'ARES-COP', message: text }));
+    appendChatMessage('ARES-COP', text, new Date().toISOString(), true);
+    input.value = '';
+  }
+}
+
+function appendChatMessage(sender, message, timestamp, isSelf) {
+  const log = document.getElementById('chat-log');
+  if (!log) return;
+  const ts = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const div = document.createElement('div');
+  div.className = 'chat-message' + (isSelf ? ' chat-self' : '');
+  div.innerHTML = `<span class="chat-sender">${sender}</span><span class="chat-time">${ts}</span><div class="chat-text">${escapeHtml(message)}</div>`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+
+  // Badge when panel is closed
+  if (!chatOpen) {
+    chatUnread++;
+    const badge = document.getElementById('chat-badge');
+    if (badge) { badge.textContent = chatUnread; badge.style.display = 'inline-flex'; }
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Sidebar & Demo Controls ───────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  // Sidebar toggle
+  const sidebar   = document.getElementById('cop-sidebar');
+  const toggleBtn = document.getElementById('sidebar-toggle');
+  toggleBtn.addEventListener('click', () => {
+    const c = sidebar.classList.toggle('collapsed');
+    toggleBtn.textContent = c ? '◀ MENU' : 'MENU ▶';
+  });
+
+  // MediaMTX streams
+  function pollMediaMtxStreams() {
+    const apiHost = (window.location.protocol === 'file:' || window.location.port === '5500') ? 'http://localhost:8080' : '';
+    fetch(`${apiHost}/api/v3/paths/list`)
+      .then(r => r.json())
+      .then(data => {
+        const list = document.getElementById('sidebar-streams-list');
+        const active = (data.items || []).filter(i => i.ready);
+        if (!active.length) { list.innerHTML = '<div class="stream-item empty">No active streams found</div>'; return; }
+        list.innerHTML = '';
+        active.forEach(s => {
+          const el = document.createElement('div');
+          el.className = 'stream-item';
+          el.innerHTML = `🎥 <strong>${s.name}</strong><br><small style="color:var(--grey-mid)">Tracks: ${(s.tracks||[]).join(', ')}</small>`;
+          el.addEventListener('click', () => openPip(s.name === 'demo' ? 'DEMO DRONE' : s.name.toUpperCase(), s.name));
+          list.appendChild(el);
+        });
+      })
+      .catch(() => { document.getElementById('sidebar-streams-list').innerHTML = '<div class="stream-item empty">Failed to query MediaMTX API</div>'; });
+  }
   setInterval(pollMediaMtxStreams, 3000);
   pollMediaMtxStreams();
 
-  // ------------------------------------------------------------------
-  // Object Tracks List Update
-  // ------------------------------------------------------------------
+  // TAK Objects sidebar + click-to-center
   window.panToTrack = function(id) {
     if (markers[id]) {
-      copMap.panTo(markers[id].getLatLng(), { animate: true, duration: 0.5 });
+      copMap.setView(markers[id].getLatLng(), 15, { animate: true });
       markers[id].openPopup();
+    } else if (shapeOverlays[id]) {
+      try { copMap.fitBounds(shapeOverlays[id].getBounds(), { padding: [40, 40], animate: true }); }
+      catch(e) { /* some groups may not have bounds */ }
     }
   };
+
+  const TYPE_ICON = { 'GROUND UNIT':'🪖','AIRCRAFT/UAS':'✈','MARKER':'📍','ROUTE':'🗺','CIRCLE':'⭕','RECTANGLE':'⬜','POLYGON':'🔷','LINE':'📏','EMERGENCY':'🚨','UAS FEED':'🎥', 'SHAPE':'◾' };
 
   function updateTrackSidebar() {
     const container = document.getElementById('sidebar-tracks-list');
     if (!container) return;
     const tracks = Object.values(window.trackData || {});
-    if (tracks.length === 0) {
-      container.innerHTML = '<div class="stream-item empty">Awaiting telemetry...</div>';
-      return;
-    }
-    
-    // Sort tracks alphabetically
-    tracks.sort((a,b) => a.callsign.localeCompare(b.callsign));
-    
-    let html = '';
-    tracks.forEach(t => {
-      // Add hover styling or pointer in CSS, inline here for quick styling
-      html += `
-        <div class="stream-item" onclick="panToTrack('${t.id}')" style="cursor:pointer; position:relative;">
-          <strong style="color:var(--green-bright);">${t.callsign}</strong>
-          <br><small style="color:var(--grey-mid)">${t.type} · ${t.lat.toFixed(4)}, ${t.lon.toFixed(4)}</small>
-        </div>
-      `;
-    });
-    
-    if (container.innerHTML !== html) {
-      container.innerHTML = html;
-    }
+    if (!tracks.length) { container.innerHTML = '<div class="stream-item empty">Awaiting telemetry...</div>'; return; }
+    tracks.sort((a,b) => (a.callsign||'').localeCompare(b.callsign||''));
+    const html = tracks.map(t => {
+      const icon = TYPE_ICON[t.type] || '•';
+      return `<div class="stream-item tak-obj-item" onclick="panToTrack('${t.id}')" style="cursor:pointer">
+        <strong style="color:var(--green-bright)">${icon} ${t.callsign}</strong>
+        <br><small style="color:var(--grey-mid)">${t.type} · ${parseFloat(t.lat).toFixed(4)}, ${parseFloat(t.lon).toFixed(4)}</small>
+      </div>`;
+    }).join('');
+    if (container.innerHTML !== html) container.innerHTML = html;
   }
-
   setInterval(updateTrackSidebar, 2000);
   updateTrackSidebar();
 
-  // Send Controls over WebSocket
+  // Demo controls
   function sendDemoControl(payload) {
-    if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
-      wsTelemetry.send(JSON.stringify(payload));
-    }
+    if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) wsTelemetry.send(JSON.stringify(payload));
   }
+  document.getElementById('demo-active-toggle').addEventListener('change', e => sendDemoControl({ cmd:'toggle_demo', state:e.target.checked }));
+  document.getElementById('demo-density-slider').addEventListener('input',  e => sendDemoControl({ cmd:'set_density', density:parseInt(e.target.value,10) }));
+  document.getElementById('demo-pattern-select').addEventListener('change', e => sendDemoControl({ cmd:'set_pattern', pattern:e.target.value }));
 
-  document.getElementById('demo-active-toggle').addEventListener('change', (e) => {
-    sendDemoControl({ cmd: 'toggle_demo', state: e.target.checked });
-  });
-
-  document.getElementById('demo-density-slider').addEventListener('input', (e) => {
-    sendDemoControl({ cmd: 'set_density', density: parseInt(e.target.value, 10) });
-  });
-
-  document.getElementById('demo-pattern-select').addEventListener('change', (e) => {
-    sendDemoControl({ cmd: 'set_pattern', pattern: e.target.value });
-  });
+  // Chat
+  initChat();
 });
 
+// ── Map Upload ────────────────────────────────────────────────────
 window.handleMapUpload = async function(event) {
   const file = event.target.files[0];
   if (!file) return;
-  
-  const uploadBtn = document.getElementById('tool-upload');
-  const originalText = uploadBtn.innerHTML;
-  uploadBtn.innerHTML = '⏳';
-  uploadBtn.disabled = true;
-
+  const btn = document.getElementById('tool-upload');
+  btn.innerHTML = '⏳'; btn.disabled = true;
   try {
-    const apiHost = window.location.protocol + "//" + window.location.host;
-    const response = await fetch(`${apiHost}/api/upload_map?filename=${encodeURIComponent(file.name)}`, {
-      method: 'POST',
-      body: file
-    });
-
-    if (response.ok) {
-      alert('Map uploaded and loaded successfully!');
-      // Force map tile reload
-      const mapContainer = document.getElementById('map');
-      if (mapContainer && typeof L !== 'undefined') {
-        // Find existing tile layers and redraw them
-        map.eachLayer((layer) => {
-          if (layer._url && layer._url.includes('/tiles/')) {
-            layer.redraw();
-          }
-        });
-      }
-    } else {
-      alert('Failed to upload map.');
-    }
-  } catch (error) {
-    console.error('Map upload error:', error);
-    alert('Map upload error.');
-  } finally {
-    uploadBtn.innerHTML = originalText;
-    uploadBtn.disabled = false;
-    event.target.value = ''; // Reset input
-  }
+    const res = await fetch(`/api/upload_map?filename=${encodeURIComponent(file.name)}`, { method:'POST', body:file });
+    if (res.ok) {
+      alert('Map uploaded successfully!');
+      copMap.eachLayer(l => { if (l._url && l._url.includes('/tiles/')) l.redraw(); });
+    } else { alert('Failed to upload map.'); }
+  } catch(e) { console.error(e); alert('Map upload error.'); }
+  finally { btn.innerHTML = '📁 UPLOAD MBTILES'; btn.disabled = false; event.target.value = ''; }
 };

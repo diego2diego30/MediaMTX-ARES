@@ -577,6 +577,32 @@ function connectTAK() {
             callsign: callsignMatch ? callsignMatch[1] : uidMatch[1]
           };
           
+          // ── Extract shape geometry for u-d-* and b-m-r types ──
+          let linkVertices = [];
+          const linkPointRegex = /point="([^"]+)"/g;
+          let lm;
+          while ((lm = linkPointRegex.exec(eventXml)) !== null) {
+            const parts = lm[1].split(',');
+            if (parts.length >= 2) linkVertices.push({ lat: parseFloat(parts[0]), lon: parseFloat(parts[1]), hae: parseFloat(parts[2] || 0) });
+          }
+          if (linkVertices.length > 0) cotObj.vertices = linkVertices;
+
+          // ── Extract ellipse (circle / rectangle dimensions) ──
+          const ellipseMatch = eventXml.match(/major="([^"]+)"[^>]*minor="([^"]+)"[^>]*angle="([^"]+)"/);
+          if (ellipseMatch) cotObj.ellipse = { major: parseFloat(ellipseMatch[1]), minor: parseFloat(ellipseMatch[2]), angle: parseFloat(ellipseMatch[3]) };
+
+          // ── Extract stroke/fill colors (signed 32-bit ARGB) ──
+          const strokeColorMatch = eventXml.match(/strokeColor[^>]*value="([^"]+)"/);
+          const fillColorMatch   = eventXml.match(/fillColor[^>]*value="([^"]+)"/);
+          const strokeWeightMatch = eventXml.match(/strokeWeight[^>]*value="([^"]+)"/);
+          if (strokeColorMatch) cotObj.strokeColor  = parseInt(strokeColorMatch[1]);
+          if (fillColorMatch)   cotObj.fillColor    = parseInt(fillColorMatch[1]);
+          if (strokeWeightMatch) cotObj.strokeWeight = parseFloat(strokeWeightMatch[1]);
+
+          // ── Extract remarks ──
+          const remarksRaw = eventXml.match(/<remarks[^>]*>([^<]*)<\/remarks>/);
+          if (remarksRaw && remarksRaw[1].trim()) cotObj.remarks = remarksRaw[1].trim();
+
           console.log(`[CoT Received] ${cotObj.callsign} (${cotObj.type}) at ${cotObj.lat}, ${cotObj.lon}`);
           broadcast([cotObj]);
         }

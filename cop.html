@@ -53,7 +53,7 @@
     </div>
     
     <div class="sidebar-section">
-      <h3>TRACKS</h3>
+      <h3>TAK OBJECTS</h3>
       <div id="sidebar-tracks-list" class="streams-list" style="max-height: 250px; overflow-y: auto;">
         <div class="stream-item empty">Awaiting telemetry...</div>
       </div>
@@ -87,6 +87,19 @@
       </div>
     </div>
   </div>
+
+  <!-- Chat UI -->
+  <div id="chat-panel" class="chat-panel">
+    <div class="chat-header">GEOCHAT (All Chat Rooms)</div>
+    <div id="chat-log" class="chat-log"></div>
+    <div class="chat-input-row">
+      <input type="text" id="chat-input" placeholder="Transmit message..." />
+      <button id="chat-send-btn">SEND</button>
+    </div>
+  </div>
+  <button id="chat-toggle-btn" class="chat-toggle-btn">
+    💬 CHAT <span id="chat-badge" class="chat-badge" style="display:none;"></span>
+  </button>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
