@@ -12,6 +12,7 @@ let wsTelemetry;
 let wsReconnectTimer;
 let chatUnread = 0;
 let chatOpen = false;
+const chatLogs = {};
 
 // ── Icons ─────────────────────────────────────────────────────────
 const UAS_ICON = L.icon({
@@ -197,7 +198,7 @@ function connectTelemetry() {
           }
         }
       } else if (data.type === 'chat') {
-        appendChatMessage(data.sender, data.message, data.timestamp, false);
+        appendChatMessage(data.sender, data.message, data.timestamp, false, data.chatroom || 'All Chat Rooms');
       } else if (data.lat && data.lon) {
         processKlvData(data);
       }
@@ -441,6 +442,7 @@ function initChat() {
   const input      = document.getElementById('chat-input');
   const sendBtn    = document.getElementById('chat-send-btn');
   const badge      = document.getElementById('chat-badge');
+  const sel        = document.getElementById('chat-recipient');
 
   toggleBtn.addEventListener('click', () => {
     chatOpen = !chatOpen;
@@ -452,8 +454,29 @@ function initChat() {
     }
   });
 
+  if (sel) {
+    sel.addEventListener('change', () => {
+      renderChatLog(sel.value);
+    });
+  }
+
   sendBtn.addEventListener('click', sendChatMessage);
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } });
+}
+
+function renderChatLog(chatroom) {
+  const log = document.getElementById('chat-log');
+  if (!log) return;
+  const msgs = chatLogs[chatroom] || [];
+  log.innerHTML = '';
+  msgs.forEach(({sender, message, timestamp, isSelf}) => {
+    const ts = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const div = document.createElement('div');
+    div.className = 'chat-message' + (isSelf ? ' chat-self' : '');
+    div.innerHTML = `<span class="chat-sender">${sender}</span><span class="chat-time">${ts}</span><div class="chat-text">${escapeHtml(message)}</div>`;
+    log.appendChild(div);
+  });
+  log.scrollTop = log.scrollHeight;
 }
 
 function sendChatMessage() {
@@ -465,7 +488,7 @@ function sendChatMessage() {
   const recipientCallsign = sel ? sel.value : 'All Chat Rooms';
   const recipientUid = sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].getAttribute('data-uid') : 'All Chat Rooms';
 
-  if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+  if (wsTelemetry && wsTelemetry.readyState === 1) {
     wsTelemetry.send(JSON.stringify({ 
       cmd: 'push_geochat', 
       senderCallsign: 'ARES-COP', 
@@ -473,20 +496,26 @@ function sendChatMessage() {
       recipientCallsign: recipientCallsign,
       recipientUid: recipientUid
     }));
-    appendChatMessage('ARES-COP', `[To: ${recipientCallsign}] ${text}`, new Date().toISOString(), true);
+    appendChatMessage('ARES-COP', text, new Date().toISOString(), true, recipientCallsign);
     input.value = '';
   }
 }
 
-function appendChatMessage(sender, message, timestamp, isSelf) {
-  const log = document.getElementById('chat-log');
-  if (!log) return;
-  const ts = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-  const div = document.createElement('div');
-  div.className = 'chat-message' + (isSelf ? ' chat-self' : '');
-  div.innerHTML = `<span class="chat-sender">${sender}</span><span class="chat-time">${ts}</span><div class="chat-text">${escapeHtml(message)}</div>`;
-  log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
+function appendChatMessage(sender, message, timestamp, isSelf, chatroom = 'All Chat Rooms') {
+  if (!chatLogs['All Chat Rooms']) chatLogs['All Chat Rooms'] = [];
+  chatLogs['All Chat Rooms'].push({sender, message, timestamp, isSelf});
+  
+  if (chatroom !== 'All Chat Rooms') {
+    if (!chatLogs[chatroom]) chatLogs[chatroom] = [];
+    chatLogs[chatroom].push({sender, message, timestamp, isSelf});
+  }
+
+  const sel = document.getElementById('chat-recipient');
+  const currentView = sel ? sel.value : 'All Chat Rooms';
+  
+  if (currentView === chatroom || currentView === 'All Chat Rooms') {
+    renderChatLog(currentView);
+  }
 
   // Badge and Toast when panel is closed
   if (!chatOpen && !isSelf) {
@@ -580,7 +609,13 @@ window.addEventListener('DOMContentLoaded', () => {
     const sel = document.getElementById('chat-recipient');
     if (!sel) return;
     const currentVal = sel.value;
-    const tracks = Object.values(window.trackData || {}).filter(t => t.type === 'GROUND UNIT' || t.type.includes('USER'));
+    const tracks = Object.values(window.trackData || {}).filter(t => 
+      (t.type === 'GROUND UNIT' || t.type === 'AIRCRAFT/UAS') &&
+      !t.id.startsWith('klv-drone') &&
+      !t.id.startsWith('EMG-') &&
+      !t.id.startsWith('COP-Shape') &&
+      !t.id.startsWith('unit-') // exclude demo simulation units
+    );
     
     let html = `<option value="All Chat Rooms" data-uid="All Chat Rooms">All Chat Rooms (Broadcast)</option>`;
     tracks.sort((a,b) => (a.callsign||'').localeCompare(b.callsign||'')).forEach(t => {
@@ -611,6 +646,55 @@ window.addEventListener('DOMContentLoaded', () => {
   // Chat
   initChat();
 });
+
+// ── User Location & Dynamic Callsign ──────────────────────────────
+function initCopUserLocation() {
+  // Fetch current username and set callsign
+  fetch('/api/me').then(r => r.json()).then(data => {
+    if (data.username) {
+      const callsign = `ARES COP [${data.username}]`;
+      if (wsTelemetry && wsTelemetry.readyState === 1) {
+        wsTelemetry.send(JSON.stringify({ cmd: 'set_cop_callsign', callsign }));
+      } else {
+        // Retry once connected
+        const origOnOpen = wsTelemetry ? wsTelemetry.onopen : null;
+        const setCallsign = () => {
+          if (wsTelemetry) wsTelemetry.send(JSON.stringify({ cmd: 'set_cop_callsign', callsign }));
+        };
+        setTimeout(setCallsign, 2000);
+      }
+    }
+  }).catch(() => {});
+
+  // Request geolocation and watch for updates
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        if (wsTelemetry && wsTelemetry.readyState === 1) {
+          wsTelemetry.send(JSON.stringify({ cmd: 'update_cop_location', lat: latitude, lon: longitude }));
+        }
+        // Place a self-marker on the map
+        if (copMap) {
+          const selfIcon = L.divIcon({
+            className: '',
+            html: '<div style="width:14px;height:14px;background:#00ccff;border:3px solid #fff;border-radius:50%;box-shadow:0 0 10px #00ccff;"></div>',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+          });
+          if (!markers['_self']) {
+            markers['_self'] = L.marker([latitude, longitude], { icon: selfIcon }).addTo(copMap);
+            markers['_self'].bindTooltip('ARES COP (YOU)', { permanent: true, direction: 'top', className: 'tactical-map-label' });
+          } else {
+            markers['_self'].setLatLng([latitude, longitude]);
+          }
+        }
+      },
+      (err) => { console.warn('Geolocation error:', err.message); },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+    );
+  }
+}
 
 // ── Map Upload ────────────────────────────────────────────────────
 window.handleMapUpload = async function(event) {

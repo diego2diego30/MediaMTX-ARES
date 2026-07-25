@@ -260,6 +260,19 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.url.startsWith('/api/recordings/delete/') && req.method === 'DELETE') {
+    const filename = path.basename(req.url.replace('/api/recordings/delete/', ''));
+    const filepath = path.join(recordingsDir, filename);
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+    return;
+  }
+
   if (req.url.startsWith('/api/upload_map') && req.method === 'POST') {
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
     const filename = urlObj.searchParams.get('filename') || 'map.mbtiles';
@@ -509,6 +522,9 @@ let takServerConnected = false;
 let takServerHostAddress = '';
 let takServerVersion = 'Unknown';
 
+let copLocation = { lat: 0.0, lon: 0.0, hasRealLocation: false };
+let copCallsign = 'ARES COP';
+
 function broadcastTakStatus() {
   broadcast({ type: 'tak_status', connected: takServerConnected, host: takServerHostAddress, version: takServerVersion });
 }
@@ -621,8 +637,15 @@ function connectTAK() {
           const remarksRaw = eventXml.match(/<remarks[^>]*>([^<]*)<\/remarks>/);
           if (remarksRaw && remarksRaw[1].trim()) cotObj.remarks = remarksRaw[1].trim();
 
+          const imageMatch = eventXml.match(/<image[^>]*>([^<]*)<\/image>/);
+          if (imageMatch) cotObj.imageUrl = imageMatch[1].trim();
+
           const staleMatch = eventXml.match(/stale=['"]([^'"]+)['"]/);
           if (staleMatch) cotObj.stale = staleMatch[1];
+          
+          if ((cotObj.type.startsWith('u-d-') || cotObj.type === 'b-m-r') && cotObj.stale && new Date(cotObj.stale).getTime() < Date.now() + 300000) {
+            cotObj.stale = new Date(Date.now() + 3600000).toISOString();
+          }
 
           console.log(`[CoT Received] ${cotObj.callsign} (${cotObj.type}) at ${cotObj.lat}, ${cotObj.lon}`);
           cotCache.set(cotObj.uid, cotObj);
@@ -631,8 +654,10 @@ function connectTAK() {
         
         let remarksMatch = eventXml.match(/<remarks[^>]*>([^<]*)<\/remarks>/);
         let chatSenderMatch = eventXml.match(/senderCallsign=['"]([^'"]+)['"]/);
+        let chatroomMatch = eventXml.match(/chatroom=['"]([^'"]+)['"]/);
+        let remarkToMatch = eventXml.match(/to=['"]([^'"]+)['"]/);
         if (typeMatch && typeMatch[1] === 'b-t-f' && remarksMatch) {
-          broadcast({ type: 'chat', sender: chatSenderMatch ? chatSenderMatch[1] : 'TAK', message: remarksMatch[1], timestamp: new Date().toISOString() });
+          broadcast({ type: 'chat', sender: chatSenderMatch ? chatSenderMatch[1] : 'TAK', message: remarksMatch[1], timestamp: new Date().toISOString(), chatroom: chatroomMatch ? chatroomMatch[1] : 'All Chat Rooms', to: remarkToMatch ? remarkToMatch[1] : null });
         }
         
         if (typeMatch && typeMatch[1] === 't-x-takp-v') {
@@ -656,10 +681,10 @@ function connectTAK() {
     const stale = new Date(now.getTime() + 60000);
     const pingXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <event version="2.0" uid="ARES-WERX-COP" type="a-f-G-U-C" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o">
-  <point lat="0.0" lon="0.0" hae="0.0" ce="9999999.0" le="9999999.0"/>
+  <point lat="${copLocation.lat}" lon="${copLocation.lon}" hae="0.0" ce="${copLocation.hasRealLocation ? 10 : 9999999.0}" le="${copLocation.hasRealLocation ? 10 : 9999999.0}"/>
   <detail>
-    <uid Droid="ARES COP"/>
-    <contact callsign="ARES COP" endpoint="*:-1:stcp"/>
+    <uid Droid="${copCallsign}"/>
+    <contact callsign="${copCallsign}" endpoint="*:-1:stcp"/>
     <takv device="Web App" platform="ARES COP" os="Linux" version="1.0"/>
     <__group name="Cyan" role="Team Member"/>
     <status battery="100"/>
@@ -725,6 +750,57 @@ function pollMediaMtxForKlv() {
 
 pollInterval = setInterval(pollMediaMtxForKlv, 2000);
 
+function broadcastVideoAliasCots() {
+  const apiUrl = process.env.MTX_API_URL || 'http://127.0.0.1:9997';
+  const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
+  const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
+  const hlsBase = process.env.PUBLIC_HLS_BASE || `https://${publicHost}`;
+  
+  http.get(`${apiUrl}/v3/paths/list`, (res) => {
+    let rawData = '';
+    res.on('data', chunk => { rawData += chunk; });
+    res.on('end', () => {
+      try {
+        const parsed = JSON.parse(rawData);
+        const paths = parsed.items || [];
+        const ready = paths.filter(p => p.ready);
+        
+        ready.forEach(p => {
+          const name = p.name;
+          const uid = `mtx-video-${name}`;
+          const callsign = `MTX-${name.toUpperCase()}`;
+          const now = new Date();
+          const stale = new Date(now.getTime() + 120000); // 2 min stale
+          
+          // Use HLS URL since iTAK supports it natively over HTTPS
+          const videoUrl = `${hlsBase}/${name}/index.m3u8`;
+          
+          const cotXml = `<event version="2.0" uid="${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
+<point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/>
+<detail>
+  <uid Droid="${callsign}"/>
+  <contact callsign="${callsign}"/>
+  <__video url="${videoUrl}" uid="${uid}">
+    <ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
+  </__video>
+  <remarks>ARES MediaMTX Video Feed (${name})</remarks>
+</detail>
+</event>`;
+          
+          if (takClient && !takClient.destroyed) {
+            takClient.write(cotXml);
+            console.log(`[VideoCoT] Pushed ${callsign} to TAK Server`);
+          }
+        });
+      } catch(e) { console.error('VideoAlias CoT error:', e); }
+    });
+  }).on('error', () => {});
+}
+
+setInterval(broadcastVideoAliasCots, 30000);
+// Also call immediately after a brief delay to let TAK connect first
+setTimeout(broadcastVideoAliasCots, 8000);
+
 const cotCache = new Map();
 setInterval(() => {
   const now = Date.now();
@@ -772,6 +848,14 @@ wss.on('connection', (ws) => {
             }
           }, 500);
         }
+      } else if (data.cmd === 'update_cop_location') {
+        copLocation.lat = data.lat || 0;
+        copLocation.lon = data.lon || 0;
+        copLocation.hasRealLocation = true;
+        console.log(`[COP Location] Updated to ${copLocation.lat}, ${copLocation.lon}`);
+      } else if (data.cmd === 'set_cop_callsign') {
+        copCallsign = data.callsign || 'ARES COP';
+        console.log(`[COP Callsign] Updated to ${copCallsign}`);
       } else if (data.cmd === 'set_density') {
         simDensity = data.density;
         rebuildCotUnits(simDensity);
