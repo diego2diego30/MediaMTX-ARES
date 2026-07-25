@@ -475,6 +475,37 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.url.startsWith('/api/datasync/remote/content') && req.method === 'GET') {
+    const urlObj = new URL(req.url, `http://${req.headers.host}`);
+    const hash = urlObj.searchParams.get('hash');
+    const hashPath = urlObj.searchParams.get('path') || (hash ? `/Marti/sync/content?hash=${encodeURIComponent(hash)}` : '/Marti/sync/content');
+    
+    const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
+    const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
+    
+    const tlsOptions = {
+      hostname: takHost,
+      port: restPort,
+      path: hashPath.startsWith('/Marti') ? hashPath : `/Marti/sync/content?${urlObj.searchParams.toString()}`,
+      method: 'GET',
+      rejectUnauthorized: false
+    };
+    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
+    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
+    
+    const proxyReq = https.request(tlsOptions, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    });
+    proxyReq.on('error', (e) => {
+      console.warn('[TAK Content Proxy Error]', e.message);
+      res.writeHead(404);
+      res.end('Attachment content not found');
+    });
+    proxyReq.end();
+    return;
+  }
+
   // ── MBTILES TILE SERVER ──
   const match = req.url.match(/^\/tiles\/(\d+)\/(\d+)\/(\d+)\.png$/);
   if (match) {
@@ -821,16 +852,36 @@ function connectTAK() {
           const imageMatch = eventXml.match(/<image[^>]*src=["']([^"']+)["']/i) || 
                              eventXml.match(/<image[^>]*url=["']([^"']+)["']/i) || 
                              eventXml.match(/<image[^>]*>([^<]+)<\/image>/i);
-          if (imageMatch && imageMatch[1].trim()) cotObj.imageUrl = imageMatch[1].trim();
+          if (imageMatch && imageMatch[1].trim()) {
+            let imgUrl = imageMatch[1].trim();
+            if (imgUrl.includes('/Marti/sync/content') || imgUrl.includes('/Marti/api/sync/content')) {
+              const hashMatch = imgUrl.match(/hash=([^&"']+)/);
+              if (hashMatch) imgUrl = `/api/datasync/remote/content?hash=${hashMatch[1]}`;
+            }
+            cotObj.imageUrl = imgUrl;
+          }
 
           const attachMatch = eventXml.match(/<attachment[^>]*url=["']([^"']+)["']/i) ||
                               eventXml.match(/<fileshare[^>]*senderUrl=["']([^"']+)["']/i) ||
-                              eventXml.match(/<fileshare[^>]*url=["']([^"']+)["']/i);
-          if (attachMatch && attachMatch[1].trim()) cotObj.attachmentUrl = attachMatch[1].trim();
+                              eventXml.match(/<fileshare[^>]*url=["']([^"']+)["']/i) ||
+                              eventXml.match(/senderUrl=["']([^"']+)["']/i);
+          if (attachMatch && attachMatch[1].trim()) {
+            let attUrl = attachMatch[1].trim();
+            if (attUrl.includes('/Marti/sync/content') || attUrl.includes('/Marti/api/sync/content')) {
+              const hashMatch = attUrl.match(/hash=([^&"']+)/);
+              if (hashMatch) attUrl = `/api/datasync/remote/content?hash=${hashMatch[1]}`;
+            }
+            cotObj.attachmentUrl = attUrl;
+          }
 
           const attachNameMatch = eventXml.match(/filename=["']([^"']+)["']/i) ||
                                   eventXml.match(/<attachment[^>]*name=["']([^"']+)["']/i);
           if (attachNameMatch) cotObj.attachmentName = attachNameMatch[1].trim();
+
+          const linkUidMatch = eventXml.match(/<link[^>]*uid=["']([^"']+)["']/i) ||
+                               eventXml.match(/parent_uid=["']([^"']+)["']/i) ||
+                               eventXml.match(/uid0=["']([^"']+)["']/i);
+          if (linkUidMatch) cotObj.parentUid = linkUidMatch[1].trim();
 
           const usericonMatch = eventXml.match(/iconsetpath=["']([^"']+)["']/i) || eventXml.match(/<usericon[^>]*>([^<]*)<\/usericon>/i);
           if (usericonMatch) cotObj.iconsetPath = usericonMatch[1].trim();

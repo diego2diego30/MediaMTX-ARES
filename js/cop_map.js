@@ -671,6 +671,21 @@ function processPointCot(cot) {
   if (cot.type === 'b-t-f') return; // Ignore chat markers
   const id = cot.uid;
 
+  // Handle linked attachment / photo events from iTAK
+  if (cot.parentUid && markers[cot.parentUid]) {
+    const targetMarker = markers[cot.parentUid];
+    targetMarker.cotData = targetMarker.cotData || {};
+    if (cot.imageUrl) targetMarker.cotData.imageUrl = cot.imageUrl;
+    if (cot.attachmentUrl) targetMarker.cotData.attachmentUrl = cot.attachmentUrl;
+    if (cot.attachmentName) targetMarker.cotData.attachmentName = cot.attachmentName;
+    
+    let tooltipLabel = targetMarker.cotData.callsign || cot.parentUid;
+    if (targetMarker.cotData.imageUrl) tooltipLabel = '📷 ' + tooltipLabel;
+    else if (targetMarker.cotData.attachmentUrl || targetMarker.cotData.attachmentName) tooltipLabel = '📎 ' + tooltipLabel;
+    targetMarker.bindTooltip(tooltipLabel, { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tactical-map-label' });
+    return;
+  }
+
   // Immediately remove emergency beacon on normal point received
   if (markers['EMG-' + id]) {
     copMap.removeLayer(markers['EMG-' + id]);
@@ -702,6 +717,7 @@ function processPointCot(cot) {
   }
   if (!markers[id]) {
     markers[id] = L.marker(latlng, { icon: symIcon }).addTo(copMap);
+    markers[id].cotData = cot;
     let tooltipLabel = cot.callsign;
     if (cot.imageUrl) tooltipLabel = '📷 ' + cot.callsign;
     else if (cot.attachmentUrl || cot.attachmentName) tooltipLabel = '📎 ' + cot.callsign;
