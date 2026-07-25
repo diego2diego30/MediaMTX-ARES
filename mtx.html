@@ -1916,10 +1916,29 @@
     }
 
     .hud-crosshair::after {
-      left: 50%;
-      top: -10px;
-      bottom: -10px;
-      width: 1px;
+      top: 50%; left: 0; width: 100%; height: 1px;
+    }
+
+    /* ── MAP OVERRIDES ── */
+    .leaflet-control-layers {
+      background: rgba(0, 15, 0, 0.85) !important;
+      border: 1px solid var(--green-dark) !important;
+      color: var(--green-mid) !important;
+      font-family: var(--font-mono) !important;
+      font-size: 11px !important;
+      border-radius: 4px !important;
+    }
+    .leaflet-control-layers-expanded {
+      padding: 6px 10px !important;
+    }
+    .leaflet-control-layers label {
+      display: flex;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .leaflet-control-layers input[type="radio"] {
+      accent-color: var(--green-bright);
+      margin-right: 6px;
     }
   </style>
 </head>
@@ -2097,6 +2116,12 @@
               style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;">
               <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </button>
+            <button id="recenter-map-btn" onclick="recenterMap()" title="Center Map on Feed"
+              style="background: transparent; border: 1px solid var(--green-dark); border-radius: 4px; color: var(--green-mid); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; margin-left: 5px;">
+              <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle>
               </svg>
             </button>
             <button class="btn btn-w" id="btn-fit-toggle" onclick="toggleVideoFit()"
@@ -3099,6 +3124,13 @@
     let copMap = null;
     let copMarker = null;
 
+    function recenterMap() {
+      window.mapAutoPan = true;
+      if (copMap && copMarker) {
+        copMap.panTo(copMarker.getLatLng(), { animate: true, duration: 0.5 });
+      }
+    }
+
     function toggleCopMap() {
       copMapActive = !copMapActive;
       const btn = document.getElementById('btn-cop-toggle');
@@ -3130,8 +3162,11 @@
 
         // Initialize map if not already done
         if (!copMap) {
-          copMap = L.map('map-container', { zoomControl: true }).setView([38.9871, -76.4739], 15);
+          copMap = L.map('map-container', { zoomControl: true }).setView([39.8283, -98.5795], 4);
           
+          copMap.on('dragstart', () => { window.mapAutoPan = false; });
+          copMap.on('zoomstart', () => { window.mapAutoPan = false; });
+
           const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
           });
@@ -3187,9 +3222,8 @@
     function startTelemetryWs() {
       if (wsTelemetry) return;
       console.log('Connecting to UAS Telemetry Bridge...');
-      
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${proto}//${window.location.host}/ws/`;
+      const wsUrl = `${proto}//${window.location.host}/ws/telemetry`;
       
       try {
         wsTelemetry = new WebSocket(wsUrl);
@@ -3264,7 +3298,9 @@
             `;
             copMarker.setPopupContent(popupHtml);
 
-            copMap.panTo(latlng, { animate: true, duration: 0.5 });
+            if (window.mapAutoPan !== false) {
+              copMap.panTo(latlng, { animate: true, duration: 0.5 });
+            }
           }
         } catch(e) {
           console.error("Failed to parse telemetry frame", e);
