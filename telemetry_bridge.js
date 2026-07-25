@@ -416,6 +416,7 @@ function broadcast(data) {
 const dgram = require('dgram');
 const klvSocket = dgram.createSocket('udp4');
 let klvBuffer = Buffer.alloc(0);
+let lastKlvCotPush = 0; // Throttle KLV→CoT pushes to TAK Server
 
 klvSocket.on('message', (msg) => {
   klvBuffer = Buffer.concat([klvBuffer, msg]);
@@ -449,8 +450,9 @@ klvSocket.on('message', (msg) => {
       });
       
       if (lat !== undefined && lon !== undefined) {
+         const streamId = 'demo'; // TODO: make dynamic per source
          broadcast({
-           stream_id: 'demo',
+           stream_id: streamId,
            lat: parseFloat(lat.toFixed(6)),
            lon: parseFloat(lon.toFixed(6)),
            alt: alt ? parseFloat(alt.toFixed(1)) : 0,
@@ -458,6 +460,27 @@ klvSocket.on('message', (msg) => {
            pitch: pitch ? parseFloat(pitch.toFixed(1)) : 0,
            roll: roll ? parseFloat(roll.toFixed(1)) : 0
          });
+
+         // ── KLV → CoT: Forward drone position to TAK Server (throttled) ──
+         const now = Date.now();
+         if (takClient && !takClient.destroyed && (now - lastKlvCotPush > 3000)) {
+           lastKlvCotPush = now;
+           const cotNow = new Date();
+           const cotStale = new Date(cotNow.getTime() + 10000); // 10s stale
+           const cotUid = `mtx-uas-${streamId}`;
+           const cotCallsign = `MTX-${streamId.toUpperCase()}`;
+           const cotLat = parseFloat(lat.toFixed(6));
+           const cotLon = parseFloat(lon.toFixed(6));
+           const cotAlt = alt ? parseFloat(alt.toFixed(1)) : 0;
+           const cotHdg = hdg ? parseFloat(hdg.toFixed(1)) : 0;
+           const cotSpeed = 0; // KLV doesn't provide ground speed in this parse
+
+           const videoUrl = `rtsp://ares-werx.com:8554/${streamId}`;
+           const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" ConnectionEntry="ARES Video Server"/><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+
+           takClient.write(cotXml);
+           console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
+         }
       }
     } catch(e) {}
   }

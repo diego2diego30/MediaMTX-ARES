@@ -241,12 +241,18 @@ function processCotData(cotArray) {
       markers[id].setIcon(symIcon);
     }
     
+    const isMtxVideo = cot.uid && cot.uid.startsWith('mtx-uas-');
+    const streamId = isMtxVideo ? cot.uid.replace('mtx-uas-', '') : null;
+    const videoLink = isMtxVideo
+      ? `<br><a href="#" onclick="openPip('${cot.callsign}', '${streamId}'); return false;" style="color:#00e5ff; text-decoration:none; font-weight:bold; cursor:pointer;">📹 Open Video Feed</a>`
+      : '';
+
     const popupHtml = `
       <div style="background: rgba(0,0,0,0.8); padding: 5px; border-radius: 4px; line-height: 1.5; letter-spacing: 0.5px; border: 1px solid var(--green-bright);">
         <strong style="color:var(--green-bright); font-size: 14px; text-shadow: 0 0 5px var(--green-bright);">${cot.callsign}</strong><br>
-        <strong style="color:#fff;">TYPE:</strong> ${cot.type}<br>
+        <strong style="color:#fff;">TYPE:</strong> ${cot.type}${isMtxVideo ? ' <span style="color:#00e5ff;">[VIDEO SERVER]</span>' : ''}<br>
         <strong style="color:#fff;">LAT:</strong> ${cot.lat.toFixed(5)}<br>
-        <strong style="color:#fff;">LON:</strong> ${cot.lon.toFixed(5)}
+        <strong style="color:#fff;">LON:</strong> ${cot.lon.toFixed(5)}${videoLink}
       </div>
     `;
     markers[id].bindPopup(popupHtml);
@@ -257,7 +263,8 @@ function processCotData(cotArray) {
     }
 
     let trackType = 'GROUND UNIT';
-    if (cot.type && cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
+    if (cot.type && cot.type === 'a-f-A-M-F-Q') trackType = 'VIDEO FEED';
+    else if (cot.type && cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
     if (cot.type && cot.type.startsWith('b-m')) trackType = 'MARKER';
     
     // Update track data for sidebar
