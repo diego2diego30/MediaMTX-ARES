@@ -658,7 +658,7 @@ function getTakIcon(cot) {
 function processCotData(cotArray) {
   cotArray.forEach(cot => {
     if (!cot.type) return;
-    if (cot.type.startsWith('t-x-m') || cot.type.startsWith('t-x-d')) { showTacticalBanner('DATA SYNC: MISSION EVENT — ' + (cot.missionName || cot.callsign || 'TAK MISSION')); return; }
+    if (cot.type.startsWith('t-x-')) { showTacticalBanner('DATA SYNC / SYSTEM EVENT — ' + (cot.missionName || cot.callsign || cot.type.toUpperCase())); return; }
     if (cot.type.startsWith('u-d-'))      processShapeCot(cot);
     else if (cot.type === 'b-m-r')        processRouteCot(cot);
     else if (cot.type.startsWith('b-a-')) processEmergencyCot(cot);
