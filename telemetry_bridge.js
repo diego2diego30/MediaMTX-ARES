@@ -486,10 +486,10 @@ klvSocket.on('message', (msg) => {
            const cotLon = parseFloat(lon.toFixed(6));
            const cotAlt = alt ? parseFloat(alt.toFixed(1)) : 0;
            const cotHdg = hdg ? parseFloat(hdg.toFixed(1)) : 0;
-           const cotSpeed = 0; // KLV doesn't provide ground speed in this parse
+           const cotSpeed = 0;
 
-           const videoUrl = `rtsp://ares-werx.com:8554/${streamId}`;
-           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" ConnectionEntry="ARES Video Server"/><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+           const videoUrl = `https://ares-werx.com/${streamId}/index.m3u8`;
+           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q-r" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="raw:rtsp" address="ares-werx.com" port="8554" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
            takClient.write(cotXml);
            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
@@ -797,7 +797,7 @@ function broadcastVideoAliasCots() {
 <detail>
   <uid Droid="${callsign}"/>
   <contact callsign="${callsign}"/>
-  <__video url="${videoUrl}" uid="${uid}">
+  <__video url="${videoUrl}" uid="${uid}" urlAlias="${callsign}">
     <ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
   </__video>
   <remarks>ARES MediaMTX Video Feed (${name})</remarks>
