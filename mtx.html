@@ -1856,9 +1856,9 @@
       display: flex;
     }
 
-    /* Option A: Hide HUD overlay on Desktop/TV screens, relying on sidebar KLV Telemetry instead */
+    /* Option A: Hide HUD overlay and HUD toggle button on Desktop/TV screens */
     @media (min-width: 1024px) {
-      .hud-overlay, .hud-overlay.active {
+      .hud-overlay, .hud-overlay.active, #btn-hud-toggle {
         display: none !important;
       }
     }
@@ -3111,22 +3111,47 @@
         btn.classList.remove('btn-w');
         stage.classList.add('split-view');
         
+        // Helper for ARES-COP Tactical Marker
+        function createAresCopMarker(latlng, callsign) {
+          const label = (callsign || 'UAS FEED').toUpperCase();
+          const icon = L.divIcon({
+            className: 'ares-map-marker-wrap',
+            html: `<div style="position:relative; display:flex; flex-direction:column; align-items:center;">
+                     <div style="background:#00ff5e; color:#000; font-family:monospace; font-size:10px; font-weight:bold; padding:2px 6px; border-radius:3px; border:1px solid #000; white-space:nowrap; box-shadow:0 0 8px rgba(0,255,94,0.8); margin-bottom:3px; text-shadow:none;">
+                       ✈ ${label}
+                     </div>
+                     <div style="width:14px; height:14px; background:#00ff5e; border:2px solid #001a00; border-radius:50%; box-shadow:0 0 10px #00ff5e;"></div>
+                   </div>`,
+            iconSize: [120, 36],
+            iconAnchor: [60, 36]
+          });
+          return L.marker(latlng, { icon });
+        }
+
         // Initialize map if not already done
         if (!copMap) {
-          copMap = L.map('map-container', { zoomControl: false }).setView([38.9871, -76.4739], 15);
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; CartoDB',
-            subdomains: 'abcd',
-            maxZoom: 20
-          }).addTo(copMap);
+          copMap = L.map('map-container', { zoomControl: true }).setView([38.9871, -76.4739], 15);
           
-          copMarker = L.circleMarker([38.9871, -76.4739], {
-            color: '#00ff5e',
-            fillColor: '#00cc4a',
-            fillOpacity: 0.8,
-            radius: 6,
-            weight: 2
-          }).addTo(copMap).bindPopup('Awaiting Telemetry...');
+          const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
+          });
+          const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; Esri World Imagery', maxZoom: 19
+          });
+          const esriLabels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19, opacity: 0.85
+          });
+          const esriHybrid = L.layerGroup([esriSat, esriLabels]).addTo(copMap);
+
+          const baseMaps = {
+            'Satellite + Labels': esriHybrid,
+            'Satellite (Pure)': esriSat,
+            'Carto Dark': cartoDark
+          };
+          L.control.layers(baseMaps, null, { position: 'bottomleft' }).addTo(copMap);
+
+          const initialCallsign = (currentMainFeed && currentMainFeed.label) ? currentMainFeed.label : 'DEMO';
+          copMarker = createAresCopMarker([38.9871, -76.4739], initialCallsign).addTo(copMap).bindPopup('Awaiting Telemetry...');
         }
         
         // Trigger a resize so Leaflet knows its new container size
