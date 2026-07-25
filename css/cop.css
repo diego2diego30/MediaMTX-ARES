@@ -207,7 +207,9 @@ body, html {
   background: rgba(10, 10, 10, 0.9);
   border: 1px solid var(--border);
   color: var(--green-bright);
-  padding: 8px 12px;
+  padding: 0;
+  height: 32px;
+  line-height: 30px;
   font-family: var(--font-header);
   font-size: 11px;
   cursor: pointer;
@@ -217,6 +219,7 @@ body, html {
   width: 100px;
   box-sizing: border-box;
   text-align: center;
+  outline: none;
 }
 .sidebar-toggle-btn:hover {
   background: var(--green-dark);
