@@ -669,9 +669,8 @@ klvSocket.on('message', (msg) => {
 
            const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
            const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
-           const hlsBase = process.env.PUBLIC_HLS_BASE || `https://${publicHost}`;
-           const videoUrl = `${hlsBase}/hls/${streamId}/index.m3u8`;
-           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q-r" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+           const videoUrl = `rtsp://${publicHost}:${rtspPort}/${streamId}`;
+           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
            takClient.write(cotXml);
            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
@@ -953,10 +952,9 @@ function pollMediaMtxForKlv() {
 pollInterval = setInterval(pollMediaMtxForKlv, 2000);
 
 function broadcastVideoAliasCots() {
-  const apiUrl = process.env.MTX_API_URL || 'http://127.0.0.1:9997';
+  const apiUrl = process.env.MTX_API_URL || 'http://mediamtx:9997';
   const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
   const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
-  const hlsBase = process.env.PUBLIC_HLS_BASE || `https://${publicHost}`;
   
   http.get(`${apiUrl}/v3/paths/list`, (res) => {
     let rawData = '';
@@ -964,31 +962,36 @@ function broadcastVideoAliasCots() {
     res.on('end', () => {
       try {
         const parsed = JSON.parse(rawData);
-        const paths = parsed.items || [];
-        const ready = paths.filter(p => p.ready);
+        let paths = parsed.items || [];
+        if (!paths.some(p => p.name === 'demo')) {
+          paths.push({ name: 'demo', ready: true });
+        }
         
-        ready.forEach(p => {
+        paths.forEach(p => {
           const name = p.name;
           const uid = `mtx-video-${name}`;
           const callsign = `MTX-${name.toUpperCase()}`;
           const now = new Date();
           const stale = new Date(now.getTime() + 120000); // 2 min stale
           
-          // Use HLS URL since iTAK supports it natively over HTTPS
-          const hlsUrl = `${hlsBase}/hls/${name}/index.m3u8`;
+          const rtspUrl = `rtsp://${publicHost}:${rtspPort}/${name}`;
           
-          let lat = 34.665;
-          let lon = -77.55;
+          let lat = 38.9871;
+          let lon = -76.4739;
+          if (copLocation && copLocation.hasRealLocation) {
+            lat = copLocation.lat;
+            lon = copLocation.lon;
+          }
           const uasCot = cotCache.get(`mtx-uas-${name}`);
           if (uasCot && uasCot.lat !== undefined) { lat = uasCot.lat; lon = uasCot.lon; }
 
           const markerUid = `mtx-marker-${name}`;
-          const markerXml = `<event version="2.0" uid="${markerUid}" type="a-f-A-M-F-Q-r" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
+          const markerXml = `<event version="2.0" uid="${markerUid}" type="a-f-A-M-F-Q" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
 <point lat="${lat}" lon="${lon}" hae="50" ce="10" le="10"/>
 <detail>
   <uid Droid="${callsign}"/>
   <contact callsign="${callsign}"/>
-  <__video url="${hlsUrl}" uid="${markerUid}" urlAlias="${callsign}">
+  <__video url="${rtspUrl}" uid="${markerUid}" urlAlias="${callsign}">
     <ConnectionEntry networkTimeout="12000" uid="${markerUid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
   </__video>
   <sensor azimuth="0" fov="60" range="500" vfov="45" model="MediaMTX-Stream"/>
@@ -997,11 +1000,11 @@ function broadcastVideoAliasCots() {
 </event>`;
           
           const cotXml = `<event version="2.0" uid="${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
-<point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/>
+<point lat="${lat}" lon="${lon}" hae="0" ce="9999999" le="9999999"/>
 <detail>
   <uid Droid="${callsign}"/>
   <contact callsign="${callsign}"/>
-  <__video url="${hlsUrl}" uid="${uid}" urlAlias="${callsign}">
+  <__video url="${rtspUrl}" uid="${uid}" urlAlias="${callsign}">
     <ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
   </__video>
   <remarks>ARES MediaMTX Video Feed (${name})</remarks>
@@ -1113,19 +1116,23 @@ wss.on('connection', (ws) => {
       } else if (data.cmd === 'push_drone_cot') {
         const uid = data.id || `drone-${Date.now()}`;
         const callsign = data.callsign || 'ARES-DRONE';
-        const lat = data.lat || 0;
-        const lon = data.lon || 0;
+        const lat = data.lat || 38.9871;
+        const lon = data.lon || -76.4739;
         const alt = data.alt || 100;
         const now = new Date();
         const stale = new Date(now.getTime() + 10 * 60 * 1000);
         const streamName = (data.stream_id || callsign.replace(/^MTX-/i, '').toLowerCase());
         const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
         const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
-        const hlsUrl = `https://${publicHost}/hls/${streamName}/index.m3u8`;
+        const rtspUrl = `rtsp://${publicHost}:${rtspPort}/${streamName}`;
         
-        const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="a-f-A-M-F-Q-r" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g"><point lat="${lat}" lon="${lon}" hae="${alt}" ce="10" le="10"/><detail><uid Droid="${callsign}"/><contact callsign="${callsign}"/><__video url="${hlsUrl}" uid="${uid}"><ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${streamName}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/></__video><remarks>ARES MediaMTX Live Drone (${callsign})</remarks></detail></event>`;
+        const cotXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="${uid}" type="a-f-A-M-F-Q" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g"><point lat="${lat}" lon="${lon}" hae="${alt}" ce="10" le="10"/><detail><uid Droid="${callsign}"/><contact callsign="${callsign}"/><__video url="${rtspUrl}" uid="${uid}" urlAlias="${callsign}"><ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${streamName}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/></__video><remarks>ARES MediaMTX Live Drone (${callsign})</remarks></detail></event>`;
+        
+        const videoAliasXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<event version="2.0" uid="b-i-v-${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g"><point lat="${lat}" lon="${lon}" hae="0" ce="9999999" le="9999999"/><detail><uid Droid="${callsign}"/><contact callsign="${callsign}"/><__video url="${rtspUrl}" uid="b-i-v-${uid}" urlAlias="${callsign}"><ConnectionEntry networkTimeout="12000" uid="b-i-v-${uid}" path="/${streamName}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/></__video><remarks>ARES MediaMTX Live Drone (${callsign})</remarks></detail></event>`;
+        
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
+          takClient.write(videoAliasXml);
           console.log(`[Drone Broadcast] ${callsign} (${uid}) sent to TAK Server at ${lat}, ${lon}`);
         }
       } else if (data.cmd === 'push_marker_cot') {
