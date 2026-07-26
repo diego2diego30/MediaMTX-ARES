@@ -1013,6 +1013,16 @@ function pollMediaMtxForKlv() {
 
 pollInterval = setInterval(pollMediaMtxForKlv, 2000);
 
+function ensureSimBroadcast() {
+  if (simInterval || !allowSimulation) return;
+  simInterval = setInterval(() => {
+    if (!activeExtractPath) {
+      broadcast(generateTelemetryTick());
+      broadcast(generateCotTick());
+    }
+  }, 500);
+}
+
 function broadcastVideoAliasCots() {
   const apiUrl = process.env.MTX_API_URL || 'http://mediamtx:9997';
   const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
@@ -1031,15 +1041,15 @@ function broadcastVideoAliasCots() {
         
         paths.forEach(p => {
           const name = p.name;
-          const uid = `mtx-video-${name}`;
+          const uid = `video-${name}`;
           const callsign = `MTX-${name.toUpperCase()}`;
           const now = new Date();
-          const stale = new Date(now.getTime() + 120000); // 2 min stale
-          
+          const stale = new Date(now.getTime() + 120000);
+
           const rtspUrl = `rtsp://${publicHost}:${rtspPort}/${name}`;
-          
-          let lat = 38.9871;
-          let lon = -76.4739;
+
+          let lat = flightState.lat || 34.665;
+          let lon = flightState.lon || -77.55;
           if (copLocation && copLocation.hasRealLocation) {
             lat = copLocation.lat;
             lon = copLocation.lon;
@@ -1047,35 +1057,22 @@ function broadcastVideoAliasCots() {
           const uasCot = cotCache.get(`mtx-uas-${name}`);
           if (uasCot && uasCot.lat !== undefined) { lat = uasCot.lat; lon = uasCot.lon; }
 
-          const markerUid = `mtx-marker-${name}`;
-          const markerXml = `<event version="2.0" uid="${markerUid}" type="a-f-A-M-F-Q" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
+          const videoCoT = `<event version="2.0" uid="${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
 <point lat="${lat}" lon="${lon}" hae="50" ce="10" le="10"/>
-<detail>
-  <uid Droid="${callsign}"/>
-  <contact callsign="${callsign}"/>
-  <__video url="${rtspUrl}" uid="${markerUid}" urlAlias="${callsign}">
-    <ConnectionEntry networkTimeout="12000" uid="${markerUid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
-  </__video>
-  <sensor azimuth="0" fov="60" range="500" vfov="45" model="MediaMTX-Stream"/>
-  <remarks>Live Stream Map Marker (${name})</remarks>
-</detail>
-</event>`;
-          
-          const cotXml = `<event version="2.0" uid="${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
-<point lat="${lat}" lon="${lon}" hae="0" ce="9999999" le="9999999"/>
 <detail>
   <uid Droid="${callsign}"/>
   <contact callsign="${callsign}"/>
   <__video url="${rtspUrl}" uid="${uid}" urlAlias="${callsign}">
     <ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${name}" protocol="raw:rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="1" ignoreEmbeddedKlv="false" alias="${callsign}"/>
+    <latency_mode>live</latency_mode>
   </__video>
+  <sensor azimuth="0" fov="60" range="500" vfov="45" model="MediaMTX-Stream"/>
   <remarks>ARES MediaMTX Video Feed (${name})</remarks>
 </detail>
 </event>`;
-          
+
           if (takClient && !takClient.destroyed) {
-            takClient.write(markerXml);
-            takClient.write(cotXml);
+            takClient.write(videoCoT);
             console.log(`[VideoCoT] Pushed map marker and feed for ${callsign} to TAK Server`);
           }
         });
@@ -1120,14 +1117,7 @@ wss.on('connection', (ws) => {
     ws.send(JSON.stringify(cached));
   }
   
-  if (!activeExtractPath && !simInterval && allowSimulation) {
-    simInterval = setInterval(() => {
-      if (!activeExtractPath) {
-        broadcast(generateTelemetryTick());
-        broadcast(generateCotTick());
-      }
-    }, 500);
-  }
+  ensureSimBroadcast();
 
   ws.on('message', (message) => {
     try {
@@ -1137,13 +1127,8 @@ wss.on('connection', (ws) => {
         if (!allowSimulation && simInterval) {
           clearInterval(simInterval);
           simInterval = null;
-        } else if (allowSimulation && !activeExtractPath && !simInterval) {
-          simInterval = setInterval(() => {
-            if (!activeExtractPath) {
-              broadcast(generateTelemetryTick());
-              broadcast(generateCotTick());
-            }
-          }, 500);
+        } else if (allowSimulation) {
+          ensureSimBroadcast();
         }
       } else if (data.cmd === 'update_cop_location') {
         copLocation.lat = data.lat || 0;
@@ -1293,9 +1278,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     console.log('HUD Client disconnected.');
-    if (wss.clients.size === 0 && simInterval) {
-      clearInterval(simInterval);
-      simInterval = null;
-    }
   });
 });
+
+ensureSimBroadcast();

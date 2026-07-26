@@ -463,7 +463,8 @@ window.fetchRemoteTakMissions = function() {
       const sel = document.getElementById('datasync-mission-sel');
       if (sel) {
         data.missions.forEach(m => {
-          const name = m.name || m.title || m;
+          const name = (typeof m === 'object') ? (m.name || m.title || m.displayName) : String(m);
+          if (!name) return;
           let exists = false;
           for (let i=0; i<sel.options.length; i++) {
             if (sel.options[i].value === name) exists = true;

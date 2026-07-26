@@ -45,6 +45,8 @@ services:
     environment:
       - MTX_API_URL=http://mediamtx:9997
       - MTX_RTSP_URL=rtsp://mediamtx:8554
+      - PUBLIC_HOST=ares-werx.com
+      - PUBLIC_RTSP_PORT=8554
       - TAK_SERVER_HOST=host.docker.internal
       - TAK_SERVER_PORT=8089
       - TAK_USE_TLS=true
