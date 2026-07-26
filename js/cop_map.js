@@ -472,7 +472,7 @@ window.fetchRemoteTakMissions = function() {
           if (!exists) {
             const opt = document.createElement('option');
             opt.value = name;
-            opt.textContent = '☁️ [TAK] ' + name;
+            opt.textContent = '☁️ REMOTE MISSION ON TAK SERVER: ' + name;
             sel.appendChild(opt);
           }
         });
@@ -480,7 +480,7 @@ window.fetchRemoteTakMissions = function() {
         // Auto-select the first TAK mission if available and not currently selected
         if (sel.options.length > 1 && sel.value === 'Local_Tactical_Mission') {
           sel.selectedIndex = 1;
-          showTacticalBanner('🔄 AUTO-SYNCED DATA MISSION TO: ' + sel.value);
+          showTacticalBanner('🔄 AUTO-SYNCED DATA MISSION TO: ' + sel.options[1].value);
         }
       }
     } else {
