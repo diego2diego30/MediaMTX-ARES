@@ -456,16 +456,20 @@ window.fetchRemoteTakMissions = function() {
   fetch('/api/datasync/remote/list')
   .then(res => res.json())
   .then(data => {
+    const sel = document.getElementById('datasync-mission-sel');
+    const listDiv = document.getElementById('datasync-items-list');
+      
     if (data && data.error) {
       showTacticalBanner('⚠️ TAK SERVER REST API: ' + data.error);
+      if (listDiv) {
+        listDiv.innerHTML = `<div style="font-style:italic; text-align:center; margin-top:40px; color:var(--red-bright);">API Error: ${data.error}</div>`;
+      }
     } else if (data && data.missions && data.missions.length > 0) {
       showTacticalBanner('📡 FOUND ' + data.missions.length + ' REMOTE MISSIONS ON TAK SERVER');
-      const sel = document.getElementById('datasync-mission-sel');
-      const listDiv = document.getElementById('datasync-items-list');
       
       if (sel) {
         data.missions.forEach((m, idx) => {
-          const name = (typeof m === 'object') ? (m.name || m.title || m.displayName) : String(m);
+          const name = (typeof m === 'object') ? (m.Name || m.name || m.title || m.displayName) : String(m);
           if (!name) return;
           
           // Add to select dropdown
