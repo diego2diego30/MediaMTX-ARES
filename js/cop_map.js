@@ -462,7 +462,7 @@ window.fetchRemoteTakMissions = function() {
       showTacticalBanner('📡 FOUND ' + data.missions.length + ' REMOTE MISSIONS ON TAK SERVER');
       const sel = document.getElementById('datasync-mission-sel');
       if (sel) {
-        data.missions.forEach(m => {
+        data.missions.forEach((m, idx) => {
           const name = (typeof m === 'object') ? (m.name || m.title || m.displayName) : String(m);
           if (!name) return;
           let exists = false;
@@ -476,6 +476,12 @@ window.fetchRemoteTakMissions = function() {
             sel.appendChild(opt);
           }
         });
+        
+        // Auto-select the first TAK mission if available and not currently selected
+        if (sel.options.length > 1 && sel.value === 'Local_Tactical_Mission') {
+          sel.selectedIndex = 1;
+          showTacticalBanner('🔄 AUTO-SYNCED DATA MISSION TO: ' + sel.value);
+        }
       }
     } else {
       showTacticalBanner('🌐 NO REMOTE MISSIONS FOUND ON TAK SERVER');
@@ -1186,6 +1192,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Chat
   initChat();
+  window.fetchRemoteTakMissions();
 });
 
 // ── User Location & Dynamic Callsign ──────────────────────────────

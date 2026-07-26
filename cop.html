@@ -71,28 +71,34 @@
     </div>
     
     <div class="sidebar-section">
-      <h3>DATA SYNC MISSIONS (TAK SPEC)</h3>
-      <div style="padding: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--green-bright);">
-        <label>ACTIVE MISSION:<br>
-          <select id="datasync-mission-sel" style="width:100%; background:#000; color:#fff; border:1px solid var(--green-dim); margin-top:4px; padding:4px;">
+      <h3 style="display:flex; justify-content:space-between; align-items:center;">
+        DATA SYNC MISSIONS
+        <button onclick="window.fetchRemoteTakMissions()" style="background:transparent; border:none; color:var(--green-bright); cursor:pointer; font-size:14px;" title="Refresh Missions">🔄</button>
+      </h3>
+      <div style="padding: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--green-bright); background: rgba(0, 255, 94, 0.05); border-radius: 4px; border: 1px solid rgba(0, 255, 94, 0.2);">
+        <label style="font-weight:bold; letter-spacing:1px; color:#fff;">ACTIVE MISSION:<br>
+          <select id="datasync-mission-sel" style="width:100%; background:#0a1a0f; color:#fff; border:1px solid var(--green-dim); margin-top:6px; padding:6px; font-family: var(--font-mono); border-radius:3px;">
             <option value="Local_Tactical_Mission" selected>☁️ Local Tactical Mission</option>
           </select>
         </label>
-        <div style="margin-top: 8px;">
-          <label style="cursor:pointer; display:flex; align-items:center; gap:6px;">
-            <input type="checkbox" id="datasync-local-mode" checked> Save Points to Local Mission Only (Do Not Auto-Broadcast)
+        <div style="margin-top: 10px; background: rgba(0,0,0,0.4); padding:6px; border-radius:3px;">
+          <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="datasync-local-mode" checked> 
+            <span style="color:#aaa;">Save to Local Only (No Auto-Broadcast)</span>
           </label>
         </div>
-        <div id="datasync-items-list" style="margin-top: 10px; max-height: 100px; overflow-y: auto; border: 1px solid var(--green-dim); padding: 4px; font-size: 11px; color: #aaa;">
-          <div style="font-style:italic;">No local mission items yet.</div>
+        
+        <div id="datasync-items-list" style="margin-top: 12px; height: 110px; overflow-y: auto; border: 1px solid var(--green-dim); background: #000; padding: 6px; font-size: 11px; color: #aaa; border-radius:3px;">
+          <div style="font-style:italic; text-align:center; margin-top:40px;">No local mission items yet.</div>
         </div>
-        <button onclick="window.broadcastDataSyncMission()" style="margin-top:8px; background:var(--green-bright); color:#000; border:none; padding:6px; width:100%; font-weight:bold; cursor:pointer;">📡 SYNC / BROADCAST MISSION TO TAK</button>
-        <div style="display:flex; gap:6px; margin-top:6px;">
-          <button onclick="window.exportMissionZip()" style="flex:1; background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:6px; font-weight:bold; cursor:pointer;" title="Download TAK Mission Package (.zip)">📤 EXPORT .ZIP</button>
+        
+        <button onclick="window.broadcastDataSyncMission()" style="margin-top:10px; background:var(--green-bright); color:#000; border:none; padding:8px; width:100%; font-weight:bold; cursor:pointer; border-radius:3px; letter-spacing:1px;">📡 BROADCAST MISSION</button>
+        
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button onclick="window.exportMissionZip()" style="flex:1; background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:6px; font-weight:bold; cursor:pointer; border-radius:3px;" title="Export .ZIP">📤 EXPORT</button>
           <input type="file" id="datasync-zip-upload" accept=".zip" style="display:none;" onchange="window.importMissionZip(event)">
-          <button onclick="document.getElementById('datasync-zip-upload').click()" style="flex:1; background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:6px; font-weight:bold; cursor:pointer;" title="Import ATAK/iTAK Mission Package (.zip)">📥 IMPORT .ZIP</button>
+          <button onclick="document.getElementById('datasync-zip-upload').click()" style="flex:1; background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:6px; font-weight:bold; cursor:pointer; border-radius:3px;" title="Import .ZIP">📥 IMPORT</button>
         </div>
-        <button onclick="window.fetchRemoteTakMissions()" style="margin-top:6px; background:transparent; color:var(--green-bright); border:1px dashed var(--green-mid); padding:6px; width:100%; font-weight:bold; cursor:pointer;" title="Query live missions on TAK Server REST API">🌐 FETCH REMOTE TAK MISSIONS</button>
       </div>
     </div>
     
