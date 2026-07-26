@@ -717,27 +717,8 @@ function processPointCot(cot) {
   }
 
   const latlng = [cot.lat, cot.lon];
-  const sidc = cotToSidc(cot.type);
-  let symIcon;
-  try {
-    const sym = new ms.Symbol(sidc, { size: 25 });
-    const svgHtml = sym.asSVG();
-    if (!svgHtml) throw new Error("empty SVG");
-    symIcon = L.divIcon({
-      className: '',
-      html: svgHtml,
-      iconAnchor: [sym.getAnchor().x, sym.getAnchor().y],
-      popupAnchor: [0, -sym.getAnchor().y]
-    });
-  } catch (e) {
-    symIcon = L.divIcon({
-      className: '',
-      html: '<div style="width:16px;height:16px;background:#00ff5e;border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px #00ff5e;"></div>',
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-      popupAnchor: [0, -10]
-    });
-  }
+  const symIcon = getTakIcon(cot);
+
   if (!markers[id]) {
     markers[id] = L.marker(latlng, { icon: symIcon }).addTo(copMap);
     markers[id].cotData = cot;
@@ -765,7 +746,12 @@ function processPointCot(cot) {
   }
   
   let popupHtml = buildPopup(cot.callsign, popupRows);
-  popupHtml += `<button onclick="window.broadcastMarkerToTak('${id}')" style="margin-top:8px;background:var(--green-mid);color:#000;border:none;padding:6px 10px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 RE-BROADCAST TO TAK</button>`;
+  popupHtml += `
+    <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+      <button onclick="window.broadcastMarkerToTak('${id}')" style="background:var(--green-mid);color:#000;border:none;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 RE-BROADCAST TO TAK</button>
+      <button onclick="window.deleteCopMarker('${id}')" style="background:#ff4444;color:#fff;border:none;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">🗑️ DELETE MARKER</button>
+    </div>
+  `;
   
   markers[id].bindPopup(popupHtml);
   if (Object.keys(markers).length === 1 && Object.keys(shapeOverlays).length === 0) {
@@ -963,6 +949,36 @@ function initChat() {
   sendBtn.addEventListener('click', sendChatMessage);
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } });
 }
+
+window.deleteCopMarker = function(id) {
+  if (!confirm('Are you sure you want to delete this marker?')) return;
+  
+  if (markers[id]) {
+    copMap.removeLayer(markers[id]);
+    delete markers[id];
+  }
+  if (shapeOverlays[id]) {
+    copMap.removeLayer(shapeOverlays[id]);
+    delete shapeOverlays[id];
+  }
+  if (window.drawnShapes && window.drawnShapes[id]) {
+    delete window.drawnShapes[id];
+  }
+  if (window.trackData) delete window.trackData[id];
+  
+  if (wsTelemetry && wsTelemetry.readyState === 1) {
+    const cancelXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<event version="2.0" uid="${id}" type="b-m-p-s-m-k" time="${new Date().toISOString()}" start="${new Date().toISOString()}" stale="${new Date().toISOString()}" how="h-g-i-g-o">
+  <point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/>
+  <detail><contact callsign="CANCELLED"/><remarks>Deleted from ARES COP</remarks></detail>
+</event>`;
+    wsTelemetry.send(JSON.stringify({ cmd: 'push_cot_raw', xml: cancelXml }));
+  }
+  
+  if (typeof showTacticalBanner === 'function') {
+    showTacticalBanner('🗑️ MARKER DELETED & CANCELLED ON TAK');
+  }
+};
 
 function renderChatLog(selectedView) {
   const log = document.getElementById('chat-log');

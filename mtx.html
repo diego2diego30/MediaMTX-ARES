@@ -2189,7 +2189,7 @@
             <div class="hud-top" id="hud-top"></div>
             <div class="hud-tc" id="hud-tc"></div>
             <div class="hud-rec" id="hud-rec">
-              <div class="rec-dot"></div>REC
+              <div class="rec-dot"></div>REC <span id="rec-timer" style="margin-left: 6px; font-family: var(--font-mono); font-weight: bold;">00:00</span>
             </div>
             <div class="hud-overlay" id="hud-overlay">
               <div class="hud-top-row">
@@ -3432,15 +3432,18 @@
 
   <script>
     let isRecording = false;
+    let recTimerInterval = null;
+    let recSeconds = 0;
 
     async function toggleRecord() {
-      if (!currentMainPath) {
-        alert("Select a stream first to record.");
+      if (!currentMainPath && (!currentMainFeed || !currentMainFeed.label)) {
+        toast('Select a video stream first to record.');
         return;
       }
-      const streamId = currentMainFeed ? currentMainFeed.label : null;
+      const streamId = currentMainFeed ? currentMainFeed.label : 'Stream';
       const btn = document.getElementById('record-main-btn');
       const recOverlay = document.getElementById('hud-rec');
+      const timerEl = document.getElementById('rec-timer');
 
       if (!isRecording) {
         try {
@@ -3451,16 +3454,28 @@
           });
           if (res.ok) {
             isRecording = true;
-            btn.style.background = 'rgba(204, 17, 17, 0.2)';
+            btn.style.background = 'rgba(204, 17, 17, 0.4)';
             btn.style.borderColor = 'var(--red-alert)';
             recOverlay.style.display = 'flex';
+            
+            recSeconds = 0;
+            if (timerEl) timerEl.textContent = '00:00';
+            clearInterval(recTimerInterval);
+            recTimerInterval = setInterval(() => {
+              recSeconds++;
+              const mins = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+              const secs = String(recSeconds % 60).padStart(2, '0');
+              if (timerEl) timerEl.textContent = `${mins}:${secs}`;
+            }, 1000);
+
+            toast('🔴 RECORDING STARTED: ' + streamId);
           } else {
             const err = await res.json();
-            alert("Failed to start recording: " + (err.error || res.statusText));
+            toast('Failed to start recording: ' + (err.error || res.statusText));
           }
         } catch (e) {
           console.error(e);
-          alert("Error starting recording.");
+          toast('Error starting recording.');
         }
       } else {
         try {
@@ -3471,14 +3486,16 @@
           });
           if (res.ok) {
             isRecording = false;
-            btn.style.background = 'transparent';
+            btn.style.background = '#000';
             btn.style.borderColor = 'var(--green-dark)';
             recOverlay.style.display = 'none';
+            clearInterval(recTimerInterval);
+            toast('⏹ RECORDING SAVED: ' + streamId);
             if (document.getElementById('recordings-modal').style.display === 'flex') {
               openRecordingsModal();
             }
           } else {
-            alert("Failed to stop recording.");
+            toast('Failed to stop recording.');
           }
         } catch (e) {
           console.error(e);
