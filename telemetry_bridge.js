@@ -1013,10 +1013,17 @@ function pollMediaMtxForKlv() {
 
 pollInterval = setInterval(pollMediaMtxForKlv, 2000);
 
+function stopSimBroadcast() {
+  if (simInterval) {
+    clearInterval(simInterval);
+    simInterval = null;
+  }
+}
+
 function ensureSimBroadcast() {
-  if (simInterval || !allowSimulation) return;
+  if (simInterval || !allowSimulation || wss.clients.size === 0) return;
   simInterval = setInterval(() => {
-    if (!activeExtractPath) {
+    if (!activeExtractPath && wss.clients.size > 0) {
       broadcast(generateTelemetryTick());
       broadcast(generateCotTick());
     }
@@ -1124,10 +1131,9 @@ wss.on('connection', (ws) => {
       const data = JSON.parse(message);
       if (data.cmd === 'toggle_demo') {
         allowSimulation = data.state;
-        if (!allowSimulation && simInterval) {
-          clearInterval(simInterval);
-          simInterval = null;
-        } else if (allowSimulation) {
+        if (!allowSimulation) {
+          stopSimBroadcast();
+        } else if (wss.clients.size > 0) {
           ensureSimBroadcast();
         }
       } else if (data.cmd === 'update_cop_location') {
@@ -1278,7 +1284,8 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     console.log('HUD Client disconnected.');
+    if (wss.clients.size === 0) {
+      stopSimBroadcast();
+    }
   });
 });
-
-ensureSimBroadcast();
