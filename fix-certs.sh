@@ -95,6 +95,8 @@ openssl pkcs12 -legacy -in files/truststore-root.p12 -nokeys \
 echo "-> [6/9] Copying client cert + key for telemetry bridge..."
 cp files/admin.pem     "$ARES_DIR/cert/tak-client.pem"
 cp files/admin-key.pem "$ARES_DIR/cert/tak-client.key"
+cp files/admin.pem     "$ARES_DIR/cert/admin.pem"
+cp files/admin-key.pem "$ARES_DIR/cert/admin.key"
 cp files/admin.p12     "$ARES_DIR/cert/admin.p12"
 cp files/truststore-root.p12 "$ARES_DIR/cert/truststore-root.p12"
 
