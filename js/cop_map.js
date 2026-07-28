@@ -373,12 +373,55 @@ window.broadcastDataSyncMission = function() {
   showTacticalBanner('📡 BROADCASTED ' + window.localMissionItems.length + ' MISSION ITEMS TO TAK');
 };
 
+// `drawnItems` (the Leaflet FeatureGroup) only exists inside initCopMap()'s
+// closure — window.drawnShapes is the actual global registry of hand-drawn
+// markers/shapes (populated in the draw:created handler) and is what's
+// usable from here. This mirrors the same per-type field mapping used by
+// broadcastShape() so drawn items serialize the same way for export.
+function getDrawnShapeExportItems() {
+  const out = [];
+  if (!window.drawnShapes) return out;
+  for (const id in window.drawnShapes) {
+    const entry = window.drawnShapes[id];
+    if (!entry || !entry.layer) continue;
+    const layer = entry.layer;
+    const nameInput = document.getElementById('edit-name-' + id);
+    const callsign = nameInput ? nameInput.value : id;
+    const item = { id, callsign, type: 'b-m-p-s-m' };
+
+    if (entry.type === 'marker') {
+      const ll = layer.getLatLng();
+      item.lat = ll.lat;
+      item.lon = ll.lng;
+    } else if (entry.type === 'circle') {
+      const ll = layer.getLatLng();
+      item.shapeType = 'circle';
+      item.lat = ll.lat;
+      item.lon = ll.lng;
+      item.radius = layer.getRadius();
+    } else if (entry.type === 'polygon' || entry.type === 'rectangle' || entry.type === 'polyline') {
+      const latlngs = layer.getLatLngs();
+      const points = Array.isArray(latlngs[0]) ? latlngs[0] : latlngs;
+      if (!points.length) continue;
+      item.shapeType = entry.type;
+      item.lat = points[0].lat;
+      item.lon = points[0].lng;
+      item.vertices = points.map(p => ({ lat: p.lat, lon: p.lng }));
+    } else {
+      continue;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
 window.exportMissionZip = function() {
   const missionSel = document.getElementById('datasync-mission-sel');
   const missionName = (missionSel && missionSel.value) ? missionSel.value : 'Local_Tactical_Mission';
   const items = window.localMissionItems || [];
+  const shapeItems = getDrawnShapeExportItems();
   
-  if (items.length === 0 && Object.keys(markers).length === 0 && drawnItems && drawnItems.getLayers().length === 0) {
+  if (items.length === 0 && Object.keys(markers).length === 0 && shapeItems.length === 0) {
     alert('No items on map to export! Add markers or shapes first.');
     return;
   }
@@ -393,6 +436,10 @@ window.exportMissionZip = function() {
       }
     }
   }
+
+  // Hand-drawn shapes/markers live in window.drawnShapes, not `markers` or
+  // localMissionItems — include them so they aren't silently dropped.
+  shapeItems.forEach(it => exportItems.push(it));
   
   showTacticalBanner('📦 PACKAGING TAK MISSION: ' + missionName.toUpperCase());
   

@@ -35,13 +35,39 @@ function connectTilesDb(filename) {
 
 connectTilesDb('camp_lejeune.mbtiles');
 
+// ── Password hashing (scrypt, no extra dependency) ──
+function hashPassword(password, salt) {
+  salt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+function isHashed(stored) {
+  return typeof stored === 'string' && /^[0-9a-f]{32}:[0-9a-f]{128}$/.test(stored);
+}
+function verifyPassword(password, stored) {
+  if (!isHashed(stored)) return false;
+  const [salt, hash] = stored.split(':');
+  const hashBuf = Buffer.from(hash, 'hex');
+  const candidateBuf = crypto.scryptSync(password, salt, 64);
+  return hashBuf.length === candidateBuf.length && crypto.timingSafeEqual(hashBuf, candidateBuf);
+}
+
 const usersFile = path.join(__dirname, 'users.json');
 if (!fs.existsSync(usersFile)) {
+  // Generate a strong random admin password on first run instead of shipping
+  // a known default — printed once so the operator can capture it.
+  const generatedPassword = crypto.randomBytes(9).toString('base64url');
   const defaultUsers = [
-    { username: 'admin', password: 'password', role: 'admin' },
-    { username: 'ares', password: 'ares', role: 'operator' }
+    { username: 'admin', password: hashPassword(generatedPassword), role: 'admin' }
   ];
   fs.writeFileSync(usersFile, JSON.stringify(defaultUsers, null, 2));
+  console.log('════════════════════════════════════════════════════════════');
+  console.log(' First run: generated admin account');
+  console.log('   username: admin');
+  console.log(`   password: ${generatedPassword}`);
+  console.log(' Save this now — it will not be shown again. Change it via');
+  console.log(' the Users panel after logging in.');
+  console.log('════════════════════════════════════════════════════════════');
 }
 let usersDB = JSON.parse(fs.readFileSync(usersFile));
 function saveUsers() { fs.writeFileSync(usersFile, JSON.stringify(usersDB, null, 2)); }
@@ -61,9 +87,35 @@ function getSession(req) {
 
 const activeRecordings = {};
 
+// Returns the session if the request is authenticated, otherwise writes 401
+// and returns null. Used to close the gap where these endpoints relied
+// entirely on nginx's auth_request — meaning they were wide open to anyone
+// who could reach the Node process directly (e.g. its published Docker port).
+function requireAuth(req, res) {
+  const session = getSession(req);
+  if (!session) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized' }));
+    return null;
+  }
+  return session;
+}
+
+// Only letters, numbers, dash, underscore — matches how stream/path names
+// are actually created (via MediaMTX paths / the UI), and rules out
+// "../" or absolute paths reaching outside the recordings directory.
+const SAFE_STREAM_ID = /^[a-zA-Z0-9_-]+$/;
+
 const httpServer = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // Access-Control-Allow-Origin: * cannot be combined with
+  // Access-Control-Allow-Credentials: true per the fetch spec — browsers reject
+  // it outright. Reflect the request's own origin instead, which stays
+  // functionally equivalent for same-origin/proxied deployments but also
+  // works correctly for legitimate cross-origin (e.g. local dev) callers.
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin) res.setHeader('Access-Control-Allow-Origin', requestOrigin);
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Vary', 'Origin');
   
   // ── AUTH & API ENDPOINTS ──
   if (req.url === '/auth/login' && req.method === 'POST') {
@@ -72,7 +124,17 @@ const httpServer = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { user, pass } = JSON.parse(body);
-        const validUser = usersDB.find(u => u.username === user && u.password === pass);
+        let validUser = usersDB.find(u => u.username === user && verifyPassword(pass, u.password));
+        if (!validUser) {
+          // Upgrade-on-login: transparently migrate any legacy plaintext
+          // account to a hashed password the first time it's used.
+          const legacyUser = usersDB.find(u => u.username === user && !isHashed(u.password) && u.password === pass);
+          if (legacyUser) {
+            legacyUser.password = hashPassword(pass);
+            saveUsers();
+            validUser = legacyUser;
+          }
+        }
         if (validUser) {
           const sid = crypto.randomBytes(32).toString('hex');
           sessions[sid] = { username: validUser.username, role: validUser.role, expires: Date.now() + 86400000 };
@@ -143,7 +205,7 @@ const httpServer = http.createServer((req, res) => {
           if (usersDB.find(u => u.username === username)) {
             res.writeHead(400); res.end(JSON.stringify({ error: 'User exists' })); return;
           }
-          usersDB.push({ username, password, role }); saveUsers();
+          usersDB.push({ username, password: hashPassword(password), role }); saveUsers();
           res.writeHead(200); res.end(JSON.stringify({ success: true }));
         } catch (e) { res.writeHead(400); res.end(); }
       });
@@ -170,11 +232,15 @@ const httpServer = http.createServer((req, res) => {
   if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true });
   
   if (req.url === '/api/record/start' && req.method === 'POST') {
+    if (!requireAuth(req, res)) return;
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
     req.on('end', () => {
       try {
         const { streamId } = JSON.parse(body);
+        if (!SAFE_STREAM_ID.test(streamId)) {
+          res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid streamId' })); return;
+        }
         if (activeRecordings[streamId]) {
           res.writeHead(400); res.end(JSON.stringify({ error: 'Already recording' })); return;
         }
@@ -189,8 +255,9 @@ const httpServer = http.createServer((req, res) => {
           '-i', streamUrl,
           '-c', 'copy',
           '-f', 'mp4',
+          '-movflags', 'frag_keyframe+empty_moov',
           filepath
-        ]);
+        ], { stdio: ['pipe', 'ignore', 'ignore'] });
         
         activeRecordings[streamId] = ffmpeg;
         
@@ -208,6 +275,7 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url === '/api/record/stop' && req.method === 'POST') {
+    if (!requireAuth(req, res)) return;
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
     req.on('end', () => {
@@ -215,7 +283,13 @@ const httpServer = http.createServer((req, res) => {
         const { streamId } = JSON.parse(body);
         const ffmpeg = activeRecordings[streamId];
         if (ffmpeg) {
-          ffmpeg.kill('SIGINT');
+          // Graceful stop: ffmpeg finalizes the output file on 'q' over stdin.
+          // SIGINT/SIGKILL can leave an unfinalized, unplayable MP4.
+          try { ffmpeg.stdin.write('q'); } catch (e) { ffmpeg.kill('SIGINT'); }
+          const forceKillTimer = setTimeout(() => {
+            try { ffmpeg.kill('SIGKILL'); } catch (e) {}
+          }, 5000);
+          ffmpeg.once('close', () => clearTimeout(forceKillTimer));
           delete activeRecordings[streamId];
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
@@ -230,6 +304,7 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url === '/api/recordings' && req.method === 'GET') {
+    if (!requireAuth(req, res)) return;
     fs.readdir(recordingsDir, (err, files) => {
       if (err) { res.writeHead(500); res.end(); return; }
       const fileStats = files.filter(f => f.endsWith('.mp4')).map(f => {
@@ -245,7 +320,8 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url.startsWith('/api/recordings/download/')) {
-    const filename = path.basename(req.url); // prevent directory traversal
+    if (!requireAuth(req, res)) return;
+    const filename = path.basename(decodeURIComponent(req.url)); // prevent directory traversal
     const filepath = path.join(recordingsDir, filename);
     if (fs.existsSync(filepath)) {
       const stats = fs.statSync(filepath);
@@ -263,7 +339,8 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url.startsWith('/api/recordings/delete/') && req.method === 'DELETE') {
-    const filename = path.basename(req.url.replace('/api/recordings/delete/', ''));
+    if (!requireAuth(req, res)) return;
+    const filename = path.basename(decodeURIComponent(req.url.replace('/api/recordings/delete/', '')));
     const filepath = path.join(recordingsDir, filename);
     if (fs.existsSync(filepath)) {
       fs.unlinkSync(filepath);
@@ -276,6 +353,7 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url.startsWith('/api/upload_map') && req.method === 'POST') {
+    if (!requireAuth(req, res)) return;
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
     const filename = urlObj.searchParams.get('filename') || 'map.mbtiles';
     const safeFilename = path.basename(filename);
@@ -300,6 +378,7 @@ const httpServer = http.createServer((req, res) => {
 
   // ── TAK DATA SYNC MISSION PACKAGE API (.ZIP & REST) ──
   if (req.url === '/api/datasync/export' && req.method === 'POST') {
+    if (!requireAuth(req, res)) return;
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
     req.on('end', () => {
@@ -367,6 +446,7 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url === '/api/datasync/import' && req.method === 'POST') {
+    if (!requireAuth(req, res)) return;
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => {
@@ -430,6 +510,7 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url === '/api/datasync/remote/list' && req.method === 'GET') {
+    if (!requireAuth(req, res)) return;
     const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
     const useTls = process.env.TAK_USE_TLS === 'true';
     const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
@@ -476,6 +557,7 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url.startsWith('/api/datasync/remote/content') && req.method === 'GET') {
+    if (!requireAuth(req, res)) return;
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
     const hash = urlObj.searchParams.get('hash');
     const hashPath = urlObj.searchParams.get('path') || (hash ? `/Marti/sync/content?hash=${encodeURIComponent(hash)}` : '/Marti/sync/content');
@@ -637,83 +719,99 @@ function broadcast(data) {
 }
 
 const dgram = require('dgram');
-const klvSocket = dgram.createSocket('udp4');
-let klvBuffer = Buffer.alloc(0);
-let lastKlvCotPush = 0; // Throttle KLV→CoT pushes to TAK Server
 
-klvSocket.on('message', (msg) => {
-  klvBuffer = Buffer.concat([klvBuffer, msg]);
+// KLV UDP listeners — one per configured video source, each on its own port,
+// so telemetry is correctly tagged instead of hardcoded to a single stream_id.
+// To wire up an additional source: add {port, streamId} below, then add a
+// matching runOnInit block in mediamtx.yml that sends KLV to
+// `udp://telemetry-bridge:<port>` for that path.
+// Override in production via KLV_STREAMS='[{"port":9998,"streamId":"demo"}]'
+const KLV_STREAMS = process.env.KLV_STREAMS
+  ? JSON.parse(process.env.KLV_STREAMS)
+  : [{ port: 9998, streamId: 'demo' }];
 
-  let index;
-  while ((index = klvBuffer.indexOf(SYNC_KEY)) !== -1) {
-    let nextIndex = klvBuffer.indexOf(SYNC_KEY, index + 16);
-    let packet;
-    
-    if (nextIndex !== -1) {
-      packet = klvBuffer.subarray(index, nextIndex);
-      klvBuffer = klvBuffer.subarray(nextIndex);
-    } else {
-      if (klvBuffer.length - index > 4096) {
-         klvBuffer = klvBuffer.subarray(index + 16);
+function createKlvListener(port, streamId) {
+  const socket = dgram.createSocket('udp4');
+  let buffer = Buffer.alloc(0);
+  let lastCotPush = 0; // Throttle KLV→CoT pushes to TAK Server, per stream
+
+  socket.on('message', (msg) => {
+    buffer = Buffer.concat([buffer, msg]);
+
+    let index;
+    while ((index = buffer.indexOf(SYNC_KEY)) !== -1) {
+      let nextIndex = buffer.indexOf(SYNC_KEY, index + 16);
+      let packet;
+
+      if (nextIndex !== -1) {
+        packet = buffer.subarray(index, nextIndex);
+        buffer = buffer.subarray(nextIndex);
+      } else {
+        if (buffer.length - index > 4096) {
+          buffer = buffer.subarray(index + 16);
+        }
+        break;
       }
-      break;
+
+      try {
+        const parsed = misb.st0601.parse(packet, { debug: false, value: true });
+        let lat, lon, alt, hdg, pitch, roll;
+
+        parsed.forEach(p => {
+          if (p.key === 13) lat = p.value;
+          if (p.key === 14) lon = p.value;
+          if (p.key === 15) alt = p.value;
+          if (p.key === 5) hdg = p.value;
+          if (p.key === 6) pitch = p.value;
+          if (p.key === 7) roll = p.value;
+        });
+
+        if (lat !== undefined && lon !== undefined) {
+          broadcast({
+            stream_id: streamId,
+            lat: parseFloat(lat.toFixed(6)),
+            lon: parseFloat(lon.toFixed(6)),
+            alt: alt ? parseFloat(alt.toFixed(1)) : 0,
+            hdg: hdg ? parseFloat(hdg.toFixed(1)) : 0,
+            pitch: pitch ? parseFloat(pitch.toFixed(1)) : 0,
+            roll: roll ? parseFloat(roll.toFixed(1)) : 0
+          });
+
+          // ── KLV → CoT: Forward drone position to TAK Server (throttled) ──
+          const now = Date.now();
+          if (takClient && !takClient.destroyed && (now - lastCotPush > 3000)) {
+            lastCotPush = now;
+            const cotNow = new Date();
+            const cotStale = new Date(cotNow.getTime() + 60000); // 60s stale
+            const cotUid = `mtx-uas-${streamId}`;
+            const cotCallsign = `MTX-${streamId.toUpperCase()}`;
+            const cotLat = parseFloat(lat.toFixed(6));
+            const cotLon = parseFloat(lon.toFixed(6));
+            const cotAlt = alt ? parseFloat(alt.toFixed(1)) : 0;
+            const cotHdg = hdg ? parseFloat(hdg.toFixed(1)) : 0;
+            const cotSpeed = 0;
+
+            const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
+            const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
+            const videoUrl = `rtsp://${publicHost}:${rtspPort}/${streamId}`;
+            const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="0" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+
+            takClient.write(cotXml);
+            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
+          }
+        }
+      } catch (e) {}
     }
-    
-    try {
-      const parsed = misb.st0601.parse(packet, { debug: false, value: true });
-      let lat, lon, alt, hdg, pitch, roll;
-      
-      parsed.forEach(p => {
-        if (p.key === 13) lat = p.value;
-        if (p.key === 14) lon = p.value;
-        if (p.key === 15) alt = p.value;
-        if (p.key === 5) hdg = p.value;
-        if (p.key === 6) pitch = p.value;
-        if (p.key === 7) roll = p.value;
-      });
-      
-      if (lat !== undefined && lon !== undefined) {
-         const streamId = 'demo'; // TODO: make dynamic per source
-         broadcast({
-           stream_id: streamId,
-           lat: parseFloat(lat.toFixed(6)),
-           lon: parseFloat(lon.toFixed(6)),
-           alt: alt ? parseFloat(alt.toFixed(1)) : 0,
-           hdg: hdg ? parseFloat(hdg.toFixed(1)) : 0,
-           pitch: pitch ? parseFloat(pitch.toFixed(1)) : 0,
-           roll: roll ? parseFloat(roll.toFixed(1)) : 0
-         });
+  });
 
-         // ── KLV → CoT: Forward drone position to TAK Server (throttled) ──
-         const now = Date.now();
-         if (takClient && !takClient.destroyed && (now - lastKlvCotPush > 3000)) {
-           lastKlvCotPush = now;
-           const cotNow = new Date();
-           const cotStale = new Date(cotNow.getTime() + 60000); // 60s stale
-           const cotUid = `mtx-uas-${streamId}`;
-           const cotCallsign = `MTX-${streamId.toUpperCase()}`;
-           const cotLat = parseFloat(lat.toFixed(6));
-           const cotLon = parseFloat(lon.toFixed(6));
-           const cotAlt = alt ? parseFloat(alt.toFixed(1)) : 0;
-           const cotHdg = hdg ? parseFloat(hdg.toFixed(1)) : 0;
-           const cotSpeed = 0;
+  socket.bind(port, () => {
+    console.log(`KLV UDP Receiver for stream "${streamId}" listening on port ${port}`);
+  });
 
-           const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
-           const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
-           const videoUrl = `rtsp://${publicHost}:${rtspPort}/${streamId}`;
-           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="0" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+  return socket;
+}
 
-           takClient.write(cotXml);
-           console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
-         }
-      }
-    } catch(e) {}
-  }
-});
-
-klvSocket.bind(9998, () => {
-  console.log('KLV UDP Receiver listening on port 9998');
-});
+const klvSockets = KLV_STREAMS.map(({ port, streamId }) => createKlvListener(port, streamId));
 
 // Periodically broadcast CoT
 setInterval(() => {
@@ -806,7 +904,10 @@ function connectTAK() {
         let lonMatch = eventXml.match(/lon=['"]([^'"]+)['"]/);
         let callsignMatch = eventXml.match(/callsign=['"]([^'"]+)['"]/);
         
-        if (uidMatch && typeMatch && latMatch && lonMatch) {
+        // GeoChat events (b-t-f) carry lat="0" lon="0" as placeholders — they are
+        // handled separately below as chat messages and must not also be treated
+        // as a point entity, or every chat message spawns a ghost marker at (0,0).
+        if (uidMatch && typeMatch && latMatch && lonMatch && typeMatch[1] !== 'b-t-f') {
           let cotObj = {
             uid: uidMatch[1],
             type: typeMatch[1],
