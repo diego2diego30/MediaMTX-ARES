@@ -101,16 +101,17 @@ cp files/truststore-root.p12 "$ARES_DIR/cert/truststore-root.p12"
 # ── 8. Build iTAK/ATAK data package ──
 echo "-> [7/9] Building iTAK/ATAK data package (ARES_Secure_Connection.zip)..."
 
-# Use the Ultimate_iTAK_Zip structure which has the proper MANIFEST
-ITAK_DIR="$ARES_DIR/Ultimate_iTAK_Zip"
+# Use the cert/ARES_Secure_Connection directory as staging
+ITAK_DIR="$ARES_DIR/cert/ARES_Secure_Connection"
 mkdir -p "$ITAK_DIR/MANIFEST"
 
 # Copy fresh certs into the package directory
 cp "$TAK_CERT_DIR/files/admin.p12"              "$ITAK_DIR/admin.p12"
 cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ITAK_DIR/truststore-root.p12"
 
-# Build the zip
+# Build the zip in root and copy to cert folder
 rm -f "$ARES_DIR/ARES_Secure_Connection.zip"
+rm -f "$ARES_DIR/cert/ARES_Secure_Connection.zip"
 cd "$ITAK_DIR"
 zip -q -r "$ARES_DIR/ARES_Secure_Connection.zip" \
   MANIFEST/manifest.xml \
@@ -119,7 +120,14 @@ zip -q -r "$ARES_DIR/ARES_Secure_Connection.zip" \
   truststore-root.p12
 cd "$ARES_DIR"
 
-# Also update the simpler ARES_Secure_Connection directory
+# Copy to cert folder for backup/consistency
+cp "$ARES_DIR/ARES_Secure_Connection.zip" "$ARES_DIR/cert/ARES_Secure_Connection.zip"
+
+# Clean up p12 files from the git template folder
+rm -f "$ITAK_DIR/admin.p12"
+rm -f "$ITAK_DIR/truststore-root.p12"
+
+# Also update the simpler ARES_Secure_Connection directory (with just certs)
 mkdir -p "$ARES_DIR/ARES_Secure_Connection"
 cp "$TAK_CERT_DIR/files/admin.p12"              "$ARES_DIR/ARES_Secure_Connection/"
 cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ARES_DIR/ARES_Secure_Connection/"
