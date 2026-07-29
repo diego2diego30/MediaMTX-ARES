@@ -126,12 +126,9 @@ FINGERPRINT=$(docker exec "$TAK_CONTAINER" openssl x509 -in "${CERT_FILES_DIR}/$
 if [ -n "$FINGERPRINT" ]; then
   echo "[User ZIP] Fingerprint: $FINGERPRINT"
   docker exec "$TAK_CONTAINER" bash -c "
-    if ! grep -q '$FINGERPRINT' /opt/tak/UserAuthenticationFile.xml 2>/dev/null; then
-      sed -i '/<\\/UserAuthenticationFile>/i\\  <User cn=\"${USERNAME}\" fingerPrint=\"${FINGERPRINT}\"\\/>' /opt/tak/UserAuthenticationFile.xml
-      echo 'Fingerprint registered in UserAuthenticationFile.xml'
-    else
-      echo 'Fingerprint already registered'
-    fi
+    sed -i '/identifier=\"${USERNAME}\" fingerprint=/d' /opt/tak/UserAuthenticationFile.xml
+    sed -i '/<\\/UserAuthenticationFile>/i\\  <User identifier=\"${USERNAME}\" fingerprint=\"${FINGERPRINT}\"\\/>' /opt/tak/UserAuthenticationFile.xml
+    echo 'Fingerprint registered in UserAuthenticationFile.xml'
   " || echo "[User ZIP] Warning: Could not update UserAuthenticationFile.xml"
 else
   echo "[User ZIP] Warning: Could not extract fingerprint"
