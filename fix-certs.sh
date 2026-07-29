@@ -76,23 +76,46 @@ cp files/takserver.p12 files/ares-werx.com.p12 2>/dev/null || true
 # ── 5. Generate Admin Client Certificate ──
 echo "-> [4/9] Generating Admin Client Certificate..."
 STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client admin || true
-# Export admin client PEM and key for telemetry bridge
+
+# ── 6. Rebuild all .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read) ──
+echo "-> [5/9] Rebuilding all .p12 with AES-256-CBC..."
+cd files
+for p12name in takserver admin truststore-root; do
+  # Find the key file (root CA uses ca.key, others use <name>.key)
+  keyfile="${p12name}.key"
+  [ "$p12name" = "truststore-root" ] && keyfile="ca.key"
+  pemfile="${p12name}.pem"
+  [ "$p12name" = "truststore-root" ] && pemfile="ca.pem"
+  [ "$p12name" = "admin" ] && pemfile="admin.pem"
+  [ "$p12name" = "admin" ] && keyfile="admin.key"
+  # Extract password
+  pass="atakatak"
+  if [ -f "$pemfile" ] && [ -f "$keyfile" ]; then
+    echo "   → $p12name.p12 → AES-256-CBC"
+    openssl pkcs12 -export -in "$pemfile" -inkey "$keyfile" -out "$p12name.p12" -name "$p12name" -passin pass:$pass -passout pass:$pass -keypbe AES-256-CBC -certpbe AES-256-CBC
+  else
+    echo "   ⚠️  Skipping $p12name (missing pem or key)"
+  fi
+done
+cd "$TAK_CERT_DIR"
+
+# Export admin client PEM and key for telemetry bridge (from rebuilt p12)
 echo " → Exporting admin client PEM and key for bridge"
-openssl pkcs12 -legacy -in files/admin.p12 -nokeys -clcerts -passin pass:atakatak -out files/admin.pem
-openssl pkcs12 -legacy -in files/admin.p12 -nocerts -nodes -passin pass:atakatak -out files/admin-key.pem
+openssl pkcs12 -in files/admin.p12 -nokeys -clcerts -passin pass:atakatak -out files/admin.pem
+openssl pkcs12 -in files/admin.p12 -nocerts -nodes -passin pass:atakatak -out files/admin-key.pem
 chmod 600 files/admin-key.pem
 chmod 644 files/admin.pem
 
-# ── 6. Export Root CA as PEM (for iOS + bridge) ──
-echo "-> [5/9] Exporting Root CA as PEM..."
-openssl pkcs12 -legacy -in files/truststore-root.p12 -nokeys \
+# ── 7. Export Root CA as PEM (for iOS + bridge) ──
+echo "-> [6/9] Exporting Root CA as PEM..."
+openssl pkcs12 -in files/truststore-root.p12 -nokeys \
   -out "$ARES_DIR/ares-root.crt" -passin pass:atakatak
 
-openssl pkcs12 -legacy -in files/truststore-root.p12 -nokeys \
+openssl pkcs12 -in files/truststore-root.p12 -nokeys \
   -out "$ARES_DIR/cert/truststore-root.pem" -passin pass:atakatak
 
-# ── 7. Copy client cert + key for the telemetry bridge ──
-echo "-> [6/9] Copying client cert + key for telemetry bridge..."
+# ── 8. Copy client cert + key for the telemetry bridge ──
+echo "-> [7/9] Copying client cert + key for telemetry bridge..."
 cp files/admin.pem     "$ARES_DIR/cert/tak-client.pem"
 cp files/admin-key.pem "$ARES_DIR/cert/tak-client.key"
 cp files/admin.pem     "$ARES_DIR/cert/admin.pem"
@@ -100,8 +123,8 @@ cp files/admin-key.pem "$ARES_DIR/cert/admin.key"
 cp files/admin.p12     "$ARES_DIR/cert/admin.p12"
 cp files/truststore-root.p12 "$ARES_DIR/cert/truststore-root.p12"
 
-# ── 8. Build iTAK/ATAK data package ──
-echo "-> [7/9] Building iTAK/ATAK data package (ARES_Secure_Connection.zip)..."
+# ── 9. Build iTAK/ATAK data package ──
+echo "-> [8/9] Building iTAK/ATAK data package (ARES_Secure_Connection.zip)..."
 
 # Use the cert/ARES_Secure_Connection directory as staging
 ITAK_DIR="$ARES_DIR/cert/ARES_Secure_Connection"
@@ -134,8 +157,8 @@ mkdir -p "$ARES_DIR/ARES_Secure_Connection"
 cp "$TAK_CERT_DIR/files/admin.p12"              "$ARES_DIR/ARES_Secure_Connection/"
 cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ARES_DIR/ARES_Secure_Connection/"
 
-# ── 9. Restart TAK Server to load new keystores ──
-echo "-> [8/9] Restarting TAK Server to load new keystores..."
+# ── 10. Restart TAK Server to load new keystores ──
+echo "-> [9/9] Restarting TAK Server to load new keystores..."
 TAK_COMPOSE_DIR=""
 for candidate in "/root/takserver" "/opt/tak"; do
   if [ -f "$candidate/docker-compose.yml" ]; then
@@ -153,8 +176,8 @@ else
   echo "      cd /path/to/takserver && docker compose restart"
 fi
 
-# ── 10. Rebuild telemetry bridge ──
-echo "-> [9/9] Rebuilding telemetry bridge with new certs..."
+# ── 11. Rebuild telemetry bridge ──
+echo "-> [10/9] Rebuilding telemetry bridge with new certs..."
 cd "$ARES_DIR"
 docker compose -f docker-compose.prod.yml up -d --build telemetry 2>/dev/null || true
 
