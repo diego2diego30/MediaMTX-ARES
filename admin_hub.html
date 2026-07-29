@@ -322,6 +322,7 @@
           document.getElementById('new-user').value = '';
           document.getElementById('new-pass').value = '';
           fetchUsers();
+          refreshProvisionDropdown();
         }
       });
     }
@@ -333,19 +334,20 @@
         body: JSON.stringify({ username })
       }).then(r => r.json()).then(res => {
         if (res.error) alert(res.error);
-        else fetchUsers();
+        else { fetchUsers(); refreshProvisionDropdown(); }
       });
     }
 
     fetchUsers();
-    fetchProvisionUsers();
+    refreshProvisionDropdown();
 
-    function fetchProvisionUsers() {
+    function refreshProvisionDropdown() {
       fetch('/api/users')
         .then(r => r.json())
         .then(users => {
           if (users.error) return;
           const sel = document.getElementById('provision-user');
+          const prev = sel.value;
           sel.innerHTML = '<option value="">— Select user —</option>';
           users.forEach(u => {
             const opt = document.createElement('option');
@@ -353,6 +355,7 @@
             opt.textContent = u.username;
             sel.appendChild(opt);
           });
+          if (prev && users.find(u => u.username === prev)) sel.value = prev;
         });
     }
 
@@ -361,8 +364,13 @@
       if (!username) { alert('Select a user first'); return; }
       const btn = document.getElementById('gen-btn');
       const result = document.getElementById('provision-result');
-      btn.textContent = 'Generating...';
+      const dlLink = document.getElementById('provision-dl');
+      const qrImg = document.getElementById('provision-qr');
+      btn.textContent = `Generating for ${username}...`;
       btn.disabled = true;
+      dlLink.href = '#';
+      dlLink.textContent = 'Download Package';
+      qrImg.src = '';
       result.style.display = 'none';
 
       fetch('/api/generate-user-zip', {
@@ -372,8 +380,11 @@
         btn.textContent = 'Generate Package';
         btn.disabled = false;
         if (res.error) { alert('Error: ' + res.error); return; }
-        document.getElementById('provision-dl').href = res.url;
-        document.getElementById('provision-qr').src =
+        const fileName = res.file || `${username}.zip`;
+        dlLink.href = res.url;
+        dlLink.download = fileName;
+        dlLink.textContent = `Download ${fileName}`;
+        qrImg.src =
           'https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=' +
           encodeURIComponent(res.url);
         result.style.display = 'flex';
