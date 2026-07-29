@@ -124,7 +124,9 @@ if [ -n "$FINGERPRINT" ]; then
   echo "[User ZIP] Fingerprint: $FINGERPRINT"
   docker exec "$TAK_CONTAINER" bash -c "
     sed -i '/identifier=\"${USERNAME}\" fingerprint=/d' /opt/tak/UserAuthenticationFile.xml
-    sed -i '/<\\/UserAuthenticationFile>/i\\  <User identifier=\"${USERNAME}\" fingerprint=\"${FINGERPRINT}\"\\/>' /opt/tak/UserAuthenticationFile.xml
+    sed -i '/<\\/UserAuthenticationFile>/i\\\\  <User identifier=\"${USERNAME}\" fingerprint=\"${FINGERPRINT}\">' /opt/tak/UserAuthenticationFile.xml
+    sed -i '/<\\/UserAuthenticationFile>/i\\\\    <groupList>__ANON__</groupList>' /opt/tak/UserAuthenticationFile.xml
+    sed -i '/<\\/UserAuthenticationFile>/i\\\\  </User>' /opt/tak/UserAuthenticationFile.xml
     echo 'Fingerprint registered in UserAuthenticationFile.xml'
   " || echo "[User ZIP] Warning: Could not update UserAuthenticationFile.xml"
 else

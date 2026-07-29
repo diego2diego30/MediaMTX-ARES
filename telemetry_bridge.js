@@ -551,7 +551,11 @@ const httpServer = http.createServer((req, res) => {
           // Step 2: Extract fingerprint and register in UserAuthenticationFile.xml
           const fpResult = await execP(`docker exec takserver bash -c 'openssl x509 -in /opt/tak/certs/files/${username}.pem -noout -fingerprint -sha256'`);
           const fingerprint = fpResult.stdout.trim().replace(/^sha256 Fingerprint=/i, '');
-          await execP(`docker exec takserver bash -c 'sed -i "/identifier=\\"${username}\\" fingerprint=/d" /opt/tak/UserAuthenticationFile.xml && sed -i "/<\\\\/UserAuthenticationFile>/i\\\\  <User identifier=\\"${username}\\" fingerprint=\\"${fingerprint}\\"\\\\/>" /opt/tak/UserAuthenticationFile.xml'`);
+          await execP(`docker exec takserver sed -i '/identifier="${username}" fingerprint=/d' /opt/tak/UserAuthenticationFile.xml`);
+          await execP(`docker exec takserver sed -i '/identifier="${username}" fingerprint=/d' /opt/tak/UserAuthenticationFile.xml`);
+          await execP(`docker exec takserver sh -c "sed -i '/<\\/UserAuthenticationFile>/i\\\\  <User identifier=\\"${username}\\" fingerprint=\\"${fingerprint}\\">' /opt/tak/UserAuthenticationFile.xml"`);
+          await execP(`docker exec takserver sh -c "sed -i '/<\\/UserAuthenticationFile>/i\\\\    <groupList>__ANON__</groupList>' /opt/tak/UserAuthenticationFile.xml"`);
+          await execP(`docker exec takserver sh -c "sed -i '/<\\/UserAuthenticationFile>/i\\\\  </User>' /opt/tak/UserAuthenticationFile.xml"`);
           console.log(`[User ZIP] Fingerprint registered for ${username}: ${fingerprint}`);
 
           // Step 3: Rebuild user .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read)
