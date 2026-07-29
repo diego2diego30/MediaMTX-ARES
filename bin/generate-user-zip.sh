@@ -60,7 +60,8 @@ cat > "/tmp/${USERNAME}.pref" <<PREFEOF
     <entry key="caPassword0" class="class java.lang.String">atakatak</entry>
     <entry key="certificateLocation0" class="class java.lang.String">${USERNAME}.p12</entry>
     <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>
-    <entry key="useAuth0" class="class java.lang.Boolean">true</entry>
+    <entry key="useAuth0" class="class java.lang.Boolean">false</entry>
+    <entry key="enforceClientAuth0" class="class java.lang.String">true</entry>
   </preference>
   <preference version="1" name="com.atakmap.app_preferences">
     <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
