@@ -66,6 +66,10 @@ cat > "/tmp/${USERNAME}.pref" <<PREFEOF
   <preference version="1" name="com.atakmap.app_preferences">
     <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
     <entry key="locationCallsign" class="class java.lang.String">${CALLSIGN}</entry>
+    <entry key="caLocation" class="class java.lang.String">truststore-root.p12</entry>
+    <entry key="certificateLocation" class="class java.lang.String">${USERNAME}.p12</entry>
+    <entry key="caPassword" class="class java.lang.String">atakatak</entry>
+    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>
   </preference>
 </preferences>
 PREFEOF
