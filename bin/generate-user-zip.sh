@@ -45,28 +45,21 @@ docker cp "$TAK_CONTAINER:${CERT_FILES_DIR}/truststore-root.p12" "/tmp/truststor
 # Step 3: Create pref XML
 echo "[User ZIP] Step 3: Building pref file..."
 cat > "/tmp/${USERNAME}.pref" <<PREFEOF
-<?xml version='1.0' encoding='ASCII' standalone='yes'?>
+<?xml version='1.0' encoding='utf-8'?>
 <preferences>
   <preference version="1" name="cot_streams">
     <entry key="count" class="class java.lang.Integer">1</entry>
     <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>
     <entry key="enabled0" class="class java.lang.Boolean">true</entry>
     <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>
-    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>
-    <entry key="caPassword0" class="class java.lang.String">atakatak</entry>
-    <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>
-    <entry key="certificateLocation0" class="class java.lang.String">${USERNAME}.p12</entry>
-    <entry key="enforceClientAuth0" class="class java.lang.String">true</entry>
-    <entry key="unsecureFileImportEnabled0" class="class java.lang.Boolean">false</entry>
-    <entry key="useAuth0" class="class java.lang.Boolean">false</entry>
-    <entry key="useConnectString0" class="class java.lang.Boolean">true</entry>
-    <entry key="locationCallsign0" class="class java.lang.String">${CALLSIGN}</entry>
-    <entry key="serverPort0" class="class java.lang.Integer">8089</entry>
-    <entry key="serverHost0" class="class java.lang.String">ares-werx.com</entry>
   </preference>
   <preference version="1" name="com.atakmap.app_preferences">
     <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
     <entry key="locationCallsign" class="class java.lang.String">${CALLSIGN}</entry>
+    <entry key="caLocation" class="class java.lang.String">truststore-root.p12</entry>
+    <entry key="caPassword" class="class java.lang.String">atakatak</entry>
+    <entry key="certificateLocation" class="class java.lang.String">${USERNAME}.p12</entry>
+    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>
   </preference>
 </preferences>
 PREFEOF
