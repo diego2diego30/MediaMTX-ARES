@@ -56,18 +56,15 @@ cat > "/tmp/${USERNAME}.pref" <<PREFEOF
     <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>
     <entry key="enabled0" class="class java.lang.Boolean">true</entry>
     <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>
+    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>
+    <entry key="caPassword0" class="class java.lang.String">atakatak</entry>
+    <entry key="certificateLocation0" class="class java.lang.String">${USERNAME}.p12</entry>
+    <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>
+    <entry key="useAuth0" class="class java.lang.Boolean">true</entry>
   </preference>
   <preference version="1" name="com.atakmap.app_preferences">
     <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
     <entry key="locationCallsign" class="class java.lang.String">${CALLSIGN}</entry>
-    <entry key="caLocation" class="class java.lang.String">truststore-root.p12</entry>
-    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>
-    <entry key="caPassword" class="class java.lang.String">atakatak</entry>
-    <entry key="caPassword0" class="class java.lang.String">atakatak</entry>
-    <entry key="certificateLocation" class="class java.lang.String">${USERNAME}.p12</entry>
-    <entry key="certificateLocation0" class="class java.lang.String">${USERNAME}.p12</entry>
-    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>
-    <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>
   </preference>
 </preferences>
 PREFEOF
