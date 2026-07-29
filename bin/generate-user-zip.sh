@@ -60,40 +60,33 @@ cat > "/tmp/${USERNAME}.pref" <<PREFEOF
   <preference version="1" name="com.atakmap.app_preferences">
     <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
     <entry key="locationCallsign" class="class java.lang.String">${CALLSIGN}</entry>
-    <entry key="caLocation" class="class java.lang.String">truststore-root.p12</entry>
-    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>
+    <entry key="caLocation" class="class java.lang.String">cert/truststore-root.p12</entry>
     <entry key="caPassword" class="class java.lang.String">atakatak</entry>
-    <entry key="caPassword0" class="class java.lang.String">atakatak</entry>
-    <entry key="certificateLocation" class="class java.lang.String">${USERNAME}.p12</entry>
-    <entry key="certificateLocation0" class="class java.lang.String">${USERNAME}.p12</entry>
+    <entry key="certificateLocation" class="class java.lang.String">cert/${USERNAME}.p12</entry>
     <entry key="clientPassword" class="class java.lang.String">atakatak</entry>
-    <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>
-    <entry key="useAuth" class="class java.lang.Boolean">false</entry>
-    <entry key="useAuth0" class="class java.lang.Boolean">false</entry>
-    <entry key="enforceClientAuth" class="class java.lang.String">true</entry>
-    <entry key="enforceClientAuth0" class="class java.lang.String">true</entry>
   </preference>
 </preferences>
 PREFEOF
 
 # Step 5: Create manifest XML
 echo "[User ZIP] Step 5: Building manifest..."
+UUID="${USERNAME}-$(date +%s)"
 cat > "/tmp/manifest.xml" <<MANEOF
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <MissionPackageManifest version="2">
   <Configuration>
-    <Parameter name="uid" value="${USERNAME}-$(date +%s)"/>
+    <Parameter name="uid" value="${UUID}"/>
     <Parameter name="name" value="ARES-WERX ${USERNAME}"/>
     <Parameter name="onReceiveDelete" value="true"/>
   </Configuration>
   <Contents>
-    <Content ignore="false" zipEntry="${USERNAME}.p12">
+    <Content ignore="false" zipEntry="certs/${USERNAME}.p12">
       <Parameter name="uid" value="${USERNAME}-p12"/>
     </Content>
-    <Content ignore="false" zipEntry="truststore-root.p12">
+    <Content ignore="false" zipEntry="certs/truststore-root.p12">
       <Parameter name="uid" value="truststore-root-p12"/>
     </Content>
-    <Content ignore="false" zipEntry="${USERNAME}.pref">
+    <Content ignore="false" zipEntry="certs/${USERNAME}.pref">
       <Parameter name="uid" value="${USERNAME}-pref"/>
       <Parameter name="mimeType" value="application/x-tak-config"/>
     </Content>
@@ -101,42 +94,43 @@ cat > "/tmp/manifest.xml" <<MANEOF
 </MissionPackageManifest>
 MANEOF
 
-# Step 6: Build the ZIP
+# Step 6: Build the ZIP with correct structure
 echo "[User ZIP] Step 6: Building ZIP package..."
 mkdir -p "$USER_ZIPS_DIR"
-cd /tmp
-zip -j "${USER_ZIPS_DIR}/${USERNAME}.zip" \
-  "${USERNAME}.p12" \
-  "truststore-root.p12" \
-  "${USERNAME}.pref"
-# Add manifest into MANIFEST/ subdirectory
-zip "${USER_ZIPS_DIR}/${USERNAME}.zip" manifest.xml
-# Move manifest entry to MANIFEST/ subdir
-# (zip doesn't support renaming, so we recreate with correct structure)
-cd /tmp
-mkdir -p ziptmp/MANIFEST
-cp manifest.xml ziptmp/MANIFEST/
-cp "${USERNAME}.p12" ziptmp/
-cp truststore-root.p12 ziptmp/
-cp "${USERNAME}.pref" ziptmp/
-cd ziptmp
+mkdir -p /tmp/ziptmp/MANIFEST /tmp/ziptmp/certs
+cp "/tmp/${USERNAME}.p12" /tmp/ziptmp/certs/
+cp /tmp/truststore-root.p12 /tmp/ziptmp/certs/
+cp "/tmp/${USERNAME}.pref" /tmp/ziptmp/certs/
+cp /tmp/manifest.xml /tmp/ziptmp/MANIFEST/
+cd /tmp/ziptmp
 rm -f "${USER_ZIPS_DIR}/${USERNAME}.zip"
 zip -r "${USER_ZIPS_DIR}/${USERNAME}.zip" .
 rm -rf /tmp/ziptmp
 
 # Step 7: Register fingerprint in UserAuthenticationFile.xml
 echo "[User ZIP] Step 7: Registering user fingerprint..."
-# Extract the user cert fingerprint from the takserver container
 FINGERPRINT=$(docker exec "$TAK_CONTAINER" openssl x509 -in "${CERT_FILES_DIR}/${USERNAME}.pem" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 | tr -d ':')
 if [ -n "$FINGERPRINT" ]; then
   echo "[User ZIP] Fingerprint: $FINGERPRINT"
-  docker exec "$TAK_CONTAINER" bash -c "
-    sed -i '/identifier=\"${USERNAME}\" fingerprint=/d' /opt/tak/UserAuthenticationFile.xml
-    sed -i '/<\\/UserAuthenticationFile>/i\\\\  <User identifier=\"${USERNAME}\" fingerprint=\"${FINGERPRINT}\">' /opt/tak/UserAuthenticationFile.xml
-    sed -i '/<\\/UserAuthenticationFile>/i\\\\    <groupList>__ANON__</groupList>' /opt/tak/UserAuthenticationFile.xml
-    sed -i '/<\\/UserAuthenticationFile>/i\\\\  </User>' /opt/tak/UserAuthenticationFile.xml
-    echo 'Fingerprint registered in UserAuthenticationFile.xml'
-  " || echo "[User ZIP] Warning: Could not update UserAuthenticationFile.xml"
+  docker exec "$TAK_CONTAINER" python3 -c "
+import xml.etree.ElementTree as ET
+filepath = '/opt/tak/UserAuthenticationFile.xml'
+NS = '{http://bbn.com/marti/xml/bindings}'
+tree = ET.parse(filepath)
+root = tree.getroot()
+user_tag = NS + 'User'
+gl_tag = NS + 'groupList'
+for user in list(root.findall(user_tag)):
+    if user.get('identifier') == '${USERNAME}':
+        root.remove(user)
+new_user = ET.SubElement(root, user_tag)
+new_user.set('identifier', '${USERNAME}')
+new_user.set('fingerprint', '${FINGERPRINT}')
+gl = ET.SubElement(new_user, gl_tag)
+gl.text = '__ANON__'
+tree.write(filepath, xml_declaration=True, encoding='UTF-8', standalone=True)
+print('User ${USERNAME} registered')
+" || echo "[User ZIP] Warning: Could not update UserAuthenticationFile.xml"
 else
   echo "[User ZIP] Warning: Could not extract fingerprint"
 fi

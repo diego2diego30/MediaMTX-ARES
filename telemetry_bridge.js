@@ -551,11 +551,19 @@ const httpServer = http.createServer((req, res) => {
           // Step 2: Extract fingerprint and register in UserAuthenticationFile.xml
           const fpResult = await execP(`docker exec takserver bash -c 'openssl x509 -in /opt/tak/certs/files/${username}.pem -noout -fingerprint -sha256'`);
           const fingerprint = fpResult.stdout.trim().replace(/^sha256 Fingerprint=/i, '');
-          await execP(`docker exec takserver sed -i '/identifier="${username}" fingerprint=/d' /opt/tak/UserAuthenticationFile.xml`);
-          await execP(`docker exec takserver sed -i '/identifier="${username}" fingerprint=/d' /opt/tak/UserAuthenticationFile.xml`);
-          await execP(`docker exec takserver sh -c "sed -i '/<\\/UserAuthenticationFile>/i\\\\  <User identifier=\\"${username}\\" fingerprint=\\"${fingerprint}\\">' /opt/tak/UserAuthenticationFile.xml"`);
-          await execP(`docker exec takserver sh -c "sed -i '/<\\/UserAuthenticationFile>/i\\\\    <groupList>__ANON__</groupList>' /opt/tak/UserAuthenticationFile.xml"`);
-          await execP(`docker exec takserver sh -c "sed -i '/<\\/UserAuthenticationFile>/i\\\\  </User>' /opt/tak/UserAuthenticationFile.xml"`);
+          // Read UserAuthenticationFile via stdout, modify, write back via stdin
+          const readResult = await execP(`docker exec takserver cat /opt/tak/UserAuthenticationFile.xml`);
+          let authContent = readResult.stdout;
+          // Remove any existing entry for this user (multiple possible formats)
+          authContent = authContent.replace(new RegExp(`<User[^>]*identifier="${username}"[^>]*>[\\s\\S]*?</User>\\n?`), '');
+          // Insert new entry before closing root tag
+          const userEntry = `  <User identifier="${username}" fingerprint="${fingerprint}">\n    <groupList>__ANON__</groupList>\n  </User>\n`;
+          authContent = authContent.replace('</UserAuthenticationFile>', userEntry + '</UserAuthenticationFile>');
+          // Write back via stdin
+          const writeChild = exec(`docker exec -i takserver sh -c 'cat > /opt/tak/UserAuthenticationFile.xml'`);
+          writeChild.stdin.write(authContent);
+          writeChild.stdin.end();
+          await new Promise(resolve => writeChild.on('close', resolve));
           console.log(`[User ZIP] Fingerprint registered for ${username}: ${fingerprint}`);
 
           // Step 3: Rebuild user .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read)
@@ -568,17 +576,18 @@ const httpServer = http.createServer((req, res) => {
           const userP12 = fs.readFileSync(`/tmp/${username}.p12`);
           const caP12 = fs.readFileSync('/tmp/truststore-root.p12');
 
-          const prefXml = `<?xml version='1.0' encoding='utf-8'?>\n<preferences>\n  <preference version="1" name="cot_streams">\n    <entry key="count" class="class java.lang.Integer">1</entry>\n    <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>\n    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n    <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>\n  </preference>\n  <preference version="1" name="com.atakmap.app_preferences">\n    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n    <entry key="locationCallsign" class="class java.lang.String">${safeCallsign}</entry>\n    <entry key="caLocation" class="class java.lang.String">truststore-root.p12</entry>\n    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>\n    <entry key="caPassword" class="class java.lang.String">atakatak</entry>\n    <entry key="caPassword0" class="class java.lang.String">atakatak</entry>\n    <entry key="certificateLocation" class="class java.lang.String">${username}.p12</entry>\n    <entry key="certificateLocation0" class="class java.lang.String">${username}.p12</entry>\n    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>\n    <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>\n    <entry key="useAuth" class="class java.lang.Boolean">false</entry>\n    <entry key="useAuth0" class="class java.lang.Boolean">false</entry>\n    <entry key="enforceClientAuth" class="class java.lang.String">true</entry>\n    <entry key="enforceClientAuth0" class="class java.lang.String">true</entry>\n  </preference>\n</preferences>`;
+          const prefXml = `<?xml version='1.0' encoding='utf-8'?>\n<preferences>\n  <preference version="1" name="cot_streams">\n    <entry key="count" class="class java.lang.Integer">1</entry>\n    <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>\n    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n    <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>\n  </preference>\n  <preference version="1" name="com.atakmap.app_preferences">\n    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n    <entry key="locationCallsign" class="class java.lang.String">${safeCallsign}</entry>\n    <entry key="caLocation" class="class java.lang.String">cert/truststore-root.p12</entry>\n    <entry key="caPassword" class="class java.lang.String">atakatak</entry>\n    <entry key="certificateLocation" class="class java.lang.String">cert/${username}.p12</entry>\n    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>\n  </preference>\n</preferences>`;
 
           const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
           const zipUrl = `https://${publicHost}/user-zips/${username}.zip`;
 
-          const manifestXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<MissionPackageManifest version="2">\n  <Configuration>\n    <Parameter name="uid" value="${username}-${Date.now()}"/>\n    <Parameter name="name" value="ARES-WERX ${username}"/>\n    <Parameter name="onReceiveDelete" value="true"/>\n  </Configuration>\n  <Contents>\n    <Content ignore="false" zipEntry="${username}.p12">\n      <Parameter name="uid" value="${username}-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="truststore-root.p12">\n      <Parameter name="uid" value="truststore-root-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="${username}.pref">\n      <Parameter name="uid" value="${username}-pref"/>\n      <Parameter name="mimeType" value="application/x-tak-config"/>\n    </Content>\n  </Contents>\n</MissionPackageManifest>`;
+          const uuid = `${username}-${Date.now()}`;
+          const manifestXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<MissionPackageManifest version="2">\n  <Configuration>\n    <Parameter name="uid" value="${uuid}"/>\n    <Parameter name="name" value="ARES-WERX ${username}"/>\n    <Parameter name="onReceiveDelete" value="true"/>\n  </Configuration>\n  <Contents>\n    <Content ignore="false" zipEntry="certs/${username}.p12">\n      <Parameter name="uid" value="${username}-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/truststore-root.p12">\n      <Parameter name="uid" value="truststore-root-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/${username}.pref">\n      <Parameter name="uid" value="${username}-pref"/>\n      <Parameter name="mimeType" value="application/x-tak-config"/>\n    </Content>\n  </Contents>\n</MissionPackageManifest>`;
 
           const zip = new AdmZip();
-          zip.addFile(`${username}.p12`, userP12);
-          zip.addFile('truststore-root.p12', caP12);
-          zip.addFile(`${username}.pref`, Buffer.from(prefXml, 'utf8'));
+          zip.addFile(`certs/${username}.p12`, userP12);
+          zip.addFile('certs/truststore-root.p12', caP12);
+          zip.addFile(`certs/${username}.pref`, Buffer.from(prefXml, 'utf8'));
           zip.addFile('MANIFEST/manifest.xml', Buffer.from(manifestXml, 'utf8'));
 
           const zipPath = path.join(userZipsDir, `${username}.zip`);

@@ -134,15 +134,20 @@ mkdir -p "$ITAK_DIR/MANIFEST"
 cp "$TAK_CERT_DIR/files/admin.p12"              "$ITAK_DIR/admin.p12"
 cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ITAK_DIR/truststore-root.p12"
 
-# Build the zip in root and copy to cert folder
+# Build the zip with correct certs/ subdirectory structure
 rm -f "$ARES_DIR/ARES_Secure_Connection.zip"
 rm -f "$ARES_DIR/cert/ARES_Secure_Connection.zip"
+mkdir -p "$ITAK_DIR/certs"
+cp "$ITAK_DIR/ARES_Secure_Connection.pref" "$ITAK_DIR/certs/"
+cp "$ITAK_DIR/admin.p12" "$ITAK_DIR/certs/"
+cp "$ITAK_DIR/truststore-root.p12" "$ITAK_DIR/certs/"
 cd "$ITAK_DIR"
 zip -q -r "$ARES_DIR/ARES_Secure_Connection.zip" \
   MANIFEST/manifest.xml \
-  ARES_Secure_Connection.pref \
-  admin.p12 \
-  truststore-root.p12
+  certs/ARES_Secure_Connection.pref \
+  certs/admin.p12 \
+  certs/truststore-root.p12
+rm -rf "$ITAK_DIR/certs"
 cd "$ARES_DIR"
 
 # Copy to cert folder for backup/consistency
