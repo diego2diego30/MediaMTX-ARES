@@ -554,7 +554,10 @@ const httpServer = http.createServer((req, res) => {
           await execP(`docker exec takserver bash -c 'sed -i "/identifier=\\"${username}\\" fingerprint=/d" /opt/tak/UserAuthenticationFile.xml && sed -i "/<\\\\/UserAuthenticationFile>/i\\\\  <User identifier=\\"${username}\\" fingerprint=\\"${fingerprint}\\"\\\\/>" /opt/tak/UserAuthenticationFile.xml'`);
           console.log(`[User ZIP] Fingerprint registered for ${username}: ${fingerprint}`);
 
-          // Step 3: Copy p12 files out
+          // Step 3: Rebuild user .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read)
+          await execP(`docker exec takserver bash -c 'cd /opt/tak/certs/files && openssl pkcs12 -export -in ${username}.pem -inkey ${username}.key -out ${username}.p12 -name ${username} -passin pass:atakatak -passout pass:atakatak -keypbe AES-256-CBC -certpbe AES-256-CBC'`);
+
+          // Step 4: Copy p12 files out
           await execP(`docker cp takserver:/opt/tak/certs/files/${username}.p12 /tmp/${username}.p12`);
           await execP(`docker cp takserver:/opt/tak/certs/files/truststore-root.p12 /tmp/truststore-root.p12`);
 

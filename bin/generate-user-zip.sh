@@ -37,13 +37,17 @@ docker exec -e STATE=MD -e CITY=ANNAPOLIS -e ORGANIZATIONAL_UNIT=ARES "$TAK_CONT
   echo "[User ZIP] Cert generation failed. It may already exist — continuing."
 }
 
-# Step 2: Copy .p12 files out
-echo "[User ZIP] Step 2: Copying cert files..."
+# Step 2: Rebuild user .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read)
+echo "[User ZIP] Step 2: Rebuilding .p12 with AES-256-CBC..."
+docker exec "$TAK_CONTAINER" bash -c "cd ${CERT_FILES_DIR} && openssl pkcs12 -export -in ${USERNAME}.pem -inkey ${USERNAME}.key -out ${USERNAME}.p12 -name ${USERNAME} -passin pass:atakatak -passout pass:atakatak -keypbe AES-256-CBC -certpbe AES-256-CBC"
+
+# Step 3: Copy .p12 files out
+echo "[User ZIP] Step 3: Copying cert files..."
 docker cp "$TAK_CONTAINER:${CERT_FILES_DIR}/${USERNAME}.p12" "/tmp/${USERNAME}.p12"
 docker cp "$TAK_CONTAINER:${CERT_FILES_DIR}/truststore-root.p12" "/tmp/truststore-root.p12"
 
-# Step 3: Create pref XML
-echo "[User ZIP] Step 3: Building pref file..."
+# Step 4: Create pref XML
+echo "[User ZIP] Step 4: Building pref file..."
 cat > "/tmp/${USERNAME}.pref" <<PREFEOF
 <?xml version='1.0' encoding='utf-8'?>
 <preferences>
@@ -64,8 +68,8 @@ cat > "/tmp/${USERNAME}.pref" <<PREFEOF
 </preferences>
 PREFEOF
 
-# Step 4: Create manifest XML
-echo "[User ZIP] Step 4: Building manifest..."
+# Step 5: Create manifest XML
+echo "[User ZIP] Step 5: Building manifest..."
 cat > "/tmp/manifest.xml" <<MANEOF
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <MissionPackageManifest version="2">
@@ -89,8 +93,8 @@ cat > "/tmp/manifest.xml" <<MANEOF
 </MissionPackageManifest>
 MANEOF
 
-# Step 5: Build the ZIP
-echo "[User ZIP] Step 5: Building ZIP package..."
+# Step 6: Build the ZIP
+echo "[User ZIP] Step 6: Building ZIP package..."
 mkdir -p "$USER_ZIPS_DIR"
 cd /tmp
 zip -j "${USER_ZIPS_DIR}/${USERNAME}.zip" \
@@ -112,8 +116,8 @@ rm -f "${USER_ZIPS_DIR}/${USERNAME}.zip"
 zip -r "${USER_ZIPS_DIR}/${USERNAME}.zip" .
 rm -rf /tmp/ziptmp
 
-# Step 6: Register fingerprint in UserAuthenticationFile.xml
-echo "[User ZIP] Step 6: Registering user fingerprint..."
+# Step 7: Register fingerprint in UserAuthenticationFile.xml
+echo "[User ZIP] Step 7: Registering user fingerprint..."
 # Extract the user cert fingerprint from the takserver container
 FINGERPRINT=$(docker exec "$TAK_CONTAINER" openssl x509 -in "${CERT_FILES_DIR}/${USERNAME}.pem" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 | tr -d ':')
 if [ -n "$FINGERPRINT" ]; then
