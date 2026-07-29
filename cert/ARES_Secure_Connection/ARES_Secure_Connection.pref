@@ -17,5 +17,9 @@
     <entry key="certificateLocation0" class="class java.lang.String">admin.p12</entry>
     <entry key="clientPassword" class="class java.lang.String">atakatak</entry>
     <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>
+    <entry key="useAuth" class="class java.lang.Boolean">false</entry>
+    <entry key="useAuth0" class="class java.lang.Boolean">false</entry>
+    <entry key="enforceClientAuth" class="class java.lang.String">true</entry>
+    <entry key="enforceClientAuth0" class="class java.lang.String">true</entry>
   </preference>
 </preferences>
