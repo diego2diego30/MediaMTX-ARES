@@ -31,9 +31,9 @@ CERT_FILES_DIR="${CERT_DIR}/files"
 
 echo "[User ZIP] Generating package for: $USERNAME (callsign: $CALLSIGN)"
 
-# Step 1: Generate client certificate
+# Step 1: Generate client certificate (must cd to cert dir first so cert-metadata.sh sources correctly)
 echo "[User ZIP] Step 1: Generating client certificate..."
-docker exec "$TAK_CONTAINER" "$CERT_DIR/makeCert.sh" client "$USERNAME" || {
+docker exec -e STATE=MD -e CITY=ANNAPOLIS -e ORGANIZATIONAL_UNIT=ARES "$TAK_CONTAINER" bash -c "cd $CERT_DIR && ./makeCert.sh client $USERNAME" || {
   echo "[User ZIP] Cert generation failed. It may already exist — continuing."
 }
 
@@ -127,7 +127,7 @@ if [ -n "$FINGERPRINT" ]; then
   echo "[User ZIP] Fingerprint: $FINGERPRINT"
   docker exec "$TAK_CONTAINER" bash -c "
     if ! grep -q '$FINGERPRINT' /opt/tak/UserAuthenticationFile.xml 2>/dev/null; then
-      sed -i 's|</UserAuthenticationFile>|  <User cn=\"${USERNAME}\" fingerPrint=\"${FINGERPRINT}\"/>\n</UserAuthenticationFile>|' /opt/tak/UserAuthenticationFile.xml
+      sed -i '/<\\/UserAuthenticationFile>/i\\  <User cn=\"${USERNAME}\" fingerPrint=\"${FINGERPRINT}\"\\/>' /opt/tak/UserAuthenticationFile.xml
       echo 'Fingerprint registered in UserAuthenticationFile.xml'
     else
       echo 'Fingerprint already registered'

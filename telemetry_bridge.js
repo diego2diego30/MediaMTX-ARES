@@ -545,7 +545,16 @@ const httpServer = http.createServer((req, res) => {
           const util = require('util');
           const execP = util.promisify(exec);
 
-          await execP(`docker exec takserver /opt/tak/certs/makeCert.sh client ${username}`);
+          // Step 1: Generate client cert with correct env vars for cert-metadata.sh
+          await execP(`docker exec takserver bash -c 'cd /opt/tak/certs && STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client ${username}'`);
+
+          // Step 2: Extract fingerprint and register in UserAuthenticationFile.xml
+          const fpResult = await execP(`docker exec takserver bash -c 'openssl x509 -in /opt/tak/certs/files/${username}.pem -noout -fingerprint -sha256'`);
+          const fingerprint = fpResult.stdout.trim().replace(/^sha256 Fingerprint=/i, '');
+          await execP(`docker exec takserver bash -c 'grep -q "${fingerprint}" /opt/tak/UserAuthenticationFile.xml || sed -i "/<\\\\/UserAuthenticationFile>/i\\\\  <User cn=\\"${username}\\" fingerPrint=\\"${fingerprint}\\"\\\\/>" /opt/tak/UserAuthenticationFile.xml'`);
+          console.log(`[User ZIP] Fingerprint registered for ${username}: ${fingerprint}`);
+
+          // Step 3: Copy p12 files out
           await execP(`docker cp takserver:/opt/tak/certs/files/${username}.p12 /tmp/${username}.p12`);
           await execP(`docker cp takserver:/opt/tak/certs/files/truststore-root.p12 /tmp/truststore-root.p12`);
 
