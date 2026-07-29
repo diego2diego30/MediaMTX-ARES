@@ -506,6 +506,99 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  // ── USER ZIP GENERATION & SERVING ──
+  const userZipsDir = path.join(__dirname, 'user-zips');
+  if (!fs.existsSync(userZipsDir)) fs.mkdirSync(userZipsDir, { recursive: true });
+
+  if (req.url === '/api/user-zips' && req.method === 'GET') {
+    const session = getSession(req);
+    if (!session || session.role !== 'admin') { res.writeHead(403); res.end(JSON.stringify({ error: 'Forbidden' })); return; }
+    fs.readdir(userZipsDir, (err, files) => {
+      if (err) { res.writeHead(500); res.end(); return; }
+      const zipFiles = files.filter(f => f.endsWith('.zip')).map(f => {
+        const stats = fs.statSync(path.join(userZipsDir, f));
+        return { name: f, size: stats.size, mtime: stats.mtime };
+      });
+      zipFiles.sort((a, b) => b.mtime - a.mtime);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(zipFiles));
+    });
+    return;
+  }
+
+  if (req.url === '/api/generate-user-zip' && req.method === 'POST') {
+    const session = getSession(req);
+    if (!session || session.role !== 'admin') { res.writeHead(403); res.end(JSON.stringify({ error: 'Forbidden' })); return; }
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      (async () => {
+        try {
+          const { username, callsign } = JSON.parse(body);
+          if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
+            res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid username' }));
+            return;
+          }
+          const safeCallsign = callsign || username;
+
+          const { exec } = require('child_process');
+          const util = require('util');
+          const execP = util.promisify(exec);
+
+          await execP(`docker exec takserver /opt/tak/certs/makeCert.sh client ${username}`);
+          await execP(`docker cp takserver:/opt/tak/certs/files/${username}.p12 /tmp/${username}.p12`);
+          await execP(`docker cp takserver:/opt/tak/certs/files/truststore-root.p12 /tmp/truststore-root.p12`);
+
+          const userP12 = fs.readFileSync(`/tmp/${username}.p12`);
+          const caP12 = fs.readFileSync('/tmp/truststore-root.p12');
+
+          const prefXml = `<?xml version='1.0' encoding='ASCII' standalone='yes'?>\n<preferences>\n  <preference version="1" name="cot_streams">\n    <entry key="count" class="class java.lang.Integer">1</entry>\n    <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>\n    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n    <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>\n    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>\n    <entry key="caPassword0" class="class java.lang.String">atakatak</entry>\n    <entry key="clientPassword0" class="class java.lang.String">atakatak</entry>\n    <entry key="certificateLocation0" class="class java.lang.String">${username}.p12</entry>\n    <entry key="enforceClientAuth0" class="class java.lang.String">true</entry>\n    <entry key="unsecureFileImportEnabled0" class="class java.lang.Boolean">false</entry>\n    <entry key="useAuth0" class="class java.lang.Boolean">false</entry>\n    <entry key="useConnectString0" class="class java.lang.Boolean">true</entry>\n    <entry key="locationCallsign0" class="class java.lang.String">${safeCallsign}</entry>\n    <entry key="serverPort0" class="class java.lang.Integer">8089</entry>\n    <entry key="serverHost0" class="class java.lang.String">ares-werx.com</entry>\n  </preference>\n  <preference version="1" name="com.atakmap.app_preferences">\n    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n    <entry key="locationCallsign" class="class java.lang.String">${safeCallsign}</entry>\n  </preference>\n</preferences>`;
+
+          const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
+          const zipUrl = `https://${publicHost}/user-zips/${username}.zip`;
+
+          const manifestXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<MissionPackageManifest version="2">\n  <Configuration>\n    <Parameter name="uid" value="${username}-${Date.now()}"/>\n    <Parameter name="name" value="ARES-WERX ${username}"/>\n    <Parameter name="onReceiveDelete" value="true"/>\n  </Configuration>\n  <Contents>\n    <Content ignore="false" zipEntry="${username}.p12">\n      <Parameter name="uid" value="${username}-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="truststore-root.p12">\n      <Parameter name="uid" value="truststore-root-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="${username}.pref">\n      <Parameter name="uid" value="${username}-pref"/>\n      <Parameter name="mimeType" value="application/x-tak-config"/>\n    </Content>\n  </Contents>\n</MissionPackageManifest>`;
+
+          const zip = new AdmZip();
+          zip.addFile(`${username}.p12`, userP12);
+          zip.addFile('truststore-root.p12', caP12);
+          zip.addFile(`${username}.pref`, Buffer.from(prefXml, 'utf8'));
+          zip.addFile('MANIFEST/manifest.xml', Buffer.from(manifestXml, 'utf8'));
+
+          const zipPath = path.join(userZipsDir, `${username}.zip`);
+          zip.writeZip(zipPath);
+
+          console.log(`[User ZIP] Generated: ${zipPath}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, file: `${username}.zip`, url: zipUrl }));
+        } catch (e) {
+          console.error('[User ZIP Error]', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      })();
+    });
+    return;
+  }
+
+  if (req.url.startsWith('/user-zips/') && req.method === 'GET') {
+    const filename = path.basename(req.url);
+    const filepath = path.join(userZipsDir, filename);
+    if (fs.existsSync(filepath)) {
+      const stats = fs.statSync(filepath);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Length': stats.size,
+        'Content-Disposition': `attachment; filename="${filename}"`
+      });
+      const readStream = fs.createReadStream(filepath);
+      readStream.pipe(res);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+    return;
+  }
+
   // ── MBTILES TILE SERVER ──
   const match = req.url.match(/^\/tiles\/(\d+)\/(\d+)\/(\d+)\.png$/);
   if (match) {
