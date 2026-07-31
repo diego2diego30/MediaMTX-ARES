@@ -1,0 +1,95 @@
+name: ARES-WERX CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: 1. Code Validation & Syntax Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate Node.js Code Syntax
+        run: |
+          node --check telemetry_bridge.js
+          echo "✅ telemetry_bridge.js syntax valid"
+
+      - name: Validate Shell Scripts
+        run: |
+          bash -n sync-to-git.sh
+          bash -n fix-certs.sh
+          bash -n deploy-production.sh
+          echo "✅ Shell scripts syntax valid"
+
+      - name: Validate XML Manifests and Preferences
+        run: |
+          python3 -c "import xml.etree.ElementTree as ET; ET.parse('cert/ARES_Secure_Connection/MANIFEST/manifest.xml')"
+          python3 -c "import xml.etree.ElementTree as ET; ET.parse('cert/ARES_Secure_Connection/ARES_Secure_Connection.pref')"
+          echo "✅ XML manifests and preferences valid"
+
+  deploy:
+    name: 2. Deploy to Live VPS & Auto-Rollback
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute SSH Deployment on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            echo "=================================================================="
+            echo " 🚀 ARES-WERX Production Deployment (GitHub Actions)"
+            echo "=================================================================="
+            
+            CD_DIR="/root/MediaMTX-ARES"
+            cd "$CD_DIR"
+            
+            # Save previous commit hash for rollback
+            PREV_COMMIT=$(git rev-parse HEAD)
+            echo "📌 Current commit before pull: $PREV_COMMIT"
+            
+            # Pull latest code
+            echo "-> Pulling latest main branch code..."
+            git pull origin main
+            
+            NEW_COMMIT=$(git rev-parse HEAD)
+            echo "📌 New commit: $NEW_COMMIT"
+            
+            # Deploy via docker compose
+            echo "-> Rebuilding Docker containers..."
+            if docker compose -f docker-compose.prod.yml up -d --build && docker restart mediamtx-gui; then
+              echo "✅ Docker build & deployment successful"
+            else
+              echo "❌ Docker deployment failed! Initiating automatic rollback..."
+              git reset --hard "$PREV_COMMIT"
+              docker compose -f docker-compose.prod.yml up -d --build
+              docker restart mediamtx-gui
+              exit 1
+            fi
+            
+            # Health check
+            echo "-> Running automated health check..."
+            sleep 10
+            
+            if curl -s -f -k https://localhost/auth/login > /dev/null || curl -s -f -k https://localhost/ > /dev/null; then
+              echo "🎉 HEALTH CHECK PASSED! Live server updated successfully."
+            else
+              echo "⚠️ Health check failed! Rolling back to $PREV_COMMIT..."
+              git reset --hard "$PREV_COMMIT"
+              docker compose -f docker-compose.prod.yml up -d --build
+              docker restart mediamtx-gui
+              exit 1
+            fi
