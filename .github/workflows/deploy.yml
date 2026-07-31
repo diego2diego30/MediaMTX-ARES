@@ -28,6 +28,7 @@ jobs:
           bash -n sync-to-git.sh
           bash -n fix-certs.sh
           bash -n deploy-production.sh
+          bash -n bin/generate-user-zip.sh
           echo "✅ Shell scripts syntax valid"
 
       - name: Validate XML Manifests and Preferences
@@ -36,39 +37,68 @@ jobs:
           python3 -c "import xml.etree.ElementTree as ET; ET.parse('cert/ARES_Secure_Connection/ARES_Secure_Connection.pref')"
           echo "✅ XML manifests and preferences valid"
 
-  deploy:
-    name: 2. Deploy to Live VPS & Auto-Rollback
+  check-secrets:
+    name: 2. Verify Deployment Secrets
     needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      secrets_ready: ${{ steps.check.outputs.secrets_ready }}
+    steps:
+      - name: Check Required Secrets Are Present
+        id: check
+        run: |
+          MISSING=""
+          if [ -z "${{ secrets.VPS_HOST }}" ]; then MISSING="$MISSING VPS_HOST"; fi
+          if [ -z "${{ secrets.VPS_USER }}" ]; then MISSING="$MISSING VPS_USER"; fi
+          if [ -z "${{ secrets.VPS_SSH_KEY }}" ]; then MISSING="$MISSING VPS_SSH_KEY"; fi
+
+          if [ -n "$MISSING" ]; then
+            echo "⚠️  WARNING: The following GitHub Secrets are not set:$MISSING"
+            echo "   Deployment via GitHub Actions is SKIPPED (VPS was already updated via sync-to-git.sh)."
+            echo "   To enable: GitHub Repo → Settings → Secrets → Actions → New repository secret"
+            echo "   Add: VPS_HOST=5.161.45.97  VPS_USER=root  VPS_SSH_KEY=(private key)"
+            echo "secrets_ready=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ All deployment secrets are present."
+            echo "secrets_ready=true" >> $GITHUB_OUTPUT
+          fi
+
+  deploy:
+    name: 3. Deploy to Live VPS & Auto-Rollback
+    needs: check-secrets
+    if: needs.check-secrets.outputs.secrets_ready == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Execute SSH Deployment on VPS
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
+          command_timeout: 5m
           script: |
             set -e
             echo "=================================================================="
             echo " 🚀 ARES-WERX Production Deployment (GitHub Actions)"
             echo "=================================================================="
-            
+
             CD_DIR="/root/MediaMTX-ARES"
             cd "$CD_DIR"
-            
-            # Save previous commit hash for rollback
+
             PREV_COMMIT=$(git rev-parse HEAD)
-            echo "📌 Current commit before pull: $PREV_COMMIT"
-            
-            # Pull latest code
-            echo "-> Pulling latest main branch code..."
+            echo "📌 Commit before pull: $PREV_COMMIT"
+
             git pull origin main
-            
+
             NEW_COMMIT=$(git rev-parse HEAD)
             echo "📌 New commit: $NEW_COMMIT"
-            
-            # Deploy via docker compose
+
+            if [ "$PREV_COMMIT" = "$NEW_COMMIT" ]; then
+              echo "ℹ️  No new commits — containers already up to date."
+              exit 0
+            fi
+
             echo "-> Rebuilding Docker containers..."
             if docker compose -f docker-compose.prod.yml up -d --build && docker restart mediamtx-gui; then
               echo "✅ Docker build & deployment successful"
@@ -77,19 +107,20 @@ jobs:
               git reset --hard "$PREV_COMMIT"
               docker compose -f docker-compose.prod.yml up -d --build
               docker restart mediamtx-gui
+              echo "🔁 Rollback to $PREV_COMMIT complete."
               exit 1
             fi
-            
-            # Health check
-            echo "-> Running automated health check..."
+
+            echo "-> Running health check..."
             sleep 10
-            
+
             if curl -s -f -k https://localhost/auth/login > /dev/null || curl -s -f -k https://localhost/ > /dev/null; then
-              echo "🎉 HEALTH CHECK PASSED! Live server updated successfully."
+              echo "🎉 HEALTH CHECK PASSED! Deployed: $NEW_COMMIT"
             else
               echo "⚠️ Health check failed! Rolling back to $PREV_COMMIT..."
               git reset --hard "$PREV_COMMIT"
               docker compose -f docker-compose.prod.yml up -d --build
               docker restart mediamtx-gui
+              echo "🔁 Rollback complete."
               exit 1
             fi
