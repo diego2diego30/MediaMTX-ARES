@@ -39,10 +39,20 @@ echo ""
 echo -e "${CYAN}-> Fetching latest GitHub Actions run for branch: ${BRANCH}...${NC}"
 RUNS=$(gh_api "${API}/actions/runs?branch=${BRANCH}&per_page=5")
 
-if [ -z "$RUNS" ] || echo "$RUNS" | grep -q '"message"'; then
+# Check for a valid response containing workflow_runs key
+if [ -z "$RUNS" ] || ! echo "$RUNS" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if 'workflow_runs' in d else 1)" 2>/dev/null; then
   echo -e "${RED}[ERROR] Could not fetch GitHub Actions runs.${NC}"
+  # Print the actual API response for diagnosis
+  echo "   API response: $(echo "$RUNS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','unknown error'))" 2>/dev/null || echo "empty/invalid response")"
   echo "   Possible causes: Repo is private, GITHUB_TOKEN not set, or no runs exist yet."
-  echo "   Set a token: export GITHUB_TOKEN=ghp_yourtoken"
+  if [ -z "$GITHUB_TOKEN" ]; then
+    echo "   ⚠️  GITHUB_TOKEN is NOT set in this shell session."
+    echo "   Run: export GITHUB_TOKEN=ghp_yourtoken"
+  else
+    echo "   ✅ GITHUB_TOKEN is set (${#GITHUB_TOKEN} chars) — token may be expired or have insufficient scopes."
+    echo "   Required scopes: repo + workflow"
+    echo "   Regenerate at: https://github.com/settings/tokens/new"
+  fi
   echo "   View directly: https://github.com/${REPO}/actions"
   exit 1
 fi
