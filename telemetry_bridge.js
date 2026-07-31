@@ -846,6 +846,7 @@ setInterval(() => {
 
 function startFfmpegExtraction(pathName) {
   // Now handled by UDP push from MediaMTX's runOnInit hook!
+  activeExtractPath = pathName;
   console.log(`Expecting KLV stream for ${pathName} on UDP 9998...`);
 }
 
