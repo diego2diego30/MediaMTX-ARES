@@ -35,7 +35,9 @@ function connectTilesDb(filename) {
 
 connectTilesDb('camp_lejeune.mbtiles');
 
-const usersFile = path.join(__dirname, 'users.json');
+const configDir = path.join(__dirname, 'config');
+if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+const usersFile = path.join(configDir, 'users.json');
 if (!fs.existsSync(usersFile)) {
   const defaultUsers = [
     { username: 'admin', password: 'password', role: 'admin' },

@@ -32,6 +32,7 @@ services:
       - ./mbtiles:/app/mbtiles
       - ./cert:/app/cert:ro
       - ./user-zips:/app/user-zips
+      - ./config:/app/config
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - MTX_API_URL=http://mediamtx:9997
