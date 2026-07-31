@@ -162,8 +162,18 @@ mkdir -p "$ARES_DIR/ARES_Secure_Connection"
 cp "$TAK_CERT_DIR/files/admin.p12"              "$ARES_DIR/ARES_Secure_Connection/"
 cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ARES_DIR/ARES_Secure_Connection/"
 
-# ── 10. Restart TAK Server to load new keystores ──
-echo "-> [9/9] Restarting TAK Server to load new keystores..."
+# ── 10. Register Nginx Admin Certificate with TAK Server ──
+echo "-> [9/10] Registering admin certificate with TAK Server (Nginx Proxy mTLS)..."
+# We must register the admin.pem generated in step 5 with TAK's UserManager 
+# so that the WebTAK proxy (port 8444) has __ADMIN__ access.
+if docker exec takserver sh -c 'cd /opt/tak && java -jar utils/UserManager.jar certmod -A certs/files/admin.pem' 2>/dev/null; then
+  echo "   ✅ admin.pem registered with __ADMIN__ group successfully."
+else
+  echo "   ⚠️  Could not run UserManager.jar in takserver container (is it running?). Nginx WebTAK may return 403."
+fi
+
+# ── 11. Restart TAK Server to load new keystores ──
+echo "-> [10/10] Restarting TAK Server to load new keystores and auth config..."
 TAK_COMPOSE_DIR=""
 for candidate in "/root/takserver" "/opt/tak"; do
   if [ -f "$candidate/docker-compose.yml" ]; then
@@ -181,8 +191,8 @@ else
   echo "      cd /path/to/takserver && docker compose restart"
 fi
 
-# ── 11. Rebuild telemetry bridge ──
-echo "-> [10/9] Rebuilding telemetry bridge with new certs..."
+# ── 12. Rebuild telemetry bridge ──
+echo "-> [11/11] Rebuilding telemetry bridge with new certs..."
 cd "$ARES_DIR"
 docker compose -f docker-compose.prod.yml up -d --build telemetry 2>/dev/null || true
 
