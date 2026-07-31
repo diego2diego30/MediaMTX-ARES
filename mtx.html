@@ -3436,11 +3436,16 @@
     let recSeconds = 0;
 
     async function toggleRecord() {
-      if (!currentMainPath && (!currentMainFeed || !currentMainFeed.label)) {
+      if (!currentMainFeed || !currentMainFeed.url) {
         toast('Select a video stream first to record.');
         return;
       }
-      const streamId = currentMainFeed ? currentMainFeed.label : 'Stream';
+      const match = currentMainFeed.url.match(/\/hls\/([^\/]+)/);
+      if (!match) {
+        toast('Only MediaMTX streams can be recorded.');
+        return;
+      }
+      const streamId = match[1];
       const btn = document.getElementById('record-main-btn');
       const recOverlay = document.getElementById('hud-rec');
       const timerEl = document.getElementById('rec-timer');
