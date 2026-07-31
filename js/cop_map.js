@@ -467,6 +467,10 @@ window.fetchRemoteTakMissions = function() {
     } else if (data && data.missions && data.missions.length > 0) {
       showTacticalBanner('📡 FOUND ' + data.missions.length + ' REMOTE MISSIONS ON TAK SERVER');
       
+      if (listDiv && data.missions.length > 0) {
+        listDiv.innerHTML = '';
+      }
+
       if (sel) {
         data.missions.forEach((m, idx) => {
           const name = (typeof m === 'object') ? (m.Name || m.name || m.title || m.displayName) : String(m);
@@ -486,9 +490,6 @@ window.fetchRemoteTakMissions = function() {
           
           // Add to the list UI
           if (listDiv) {
-            if (listDiv.innerHTML.includes('No local mission items yet')) {
-              listDiv.innerHTML = '';
-            }
             const itemEl = document.createElement('div');
             itemEl.style.padding = '4px';
             itemEl.style.borderBottom = '1px solid rgba(0,255,94,0.2)';

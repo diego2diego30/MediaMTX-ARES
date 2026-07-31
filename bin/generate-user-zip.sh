@@ -23,6 +23,11 @@ if [ $# -lt 1 ]; then
 fi
 
 USERNAME="$1"
+if [[ ! "$USERNAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+  echo "[Error] Invalid username '$USERNAME'. Only alphanumeric characters, dashes, and underscores are allowed."
+  exit 1
+fi
+
 CALLSIGN="${2:-$USERNAME}"
 USER_ZIPS_DIR="$(cd "$(dirname "$0")/.." && pwd)/user-zips"
 TAK_CONTAINER="takserver"
@@ -60,9 +65,9 @@ cat > "/tmp/${USERNAME}.pref" <<PREFEOF
   <preference version="1" name="com.atakmap.app_preferences">
     <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
     <entry key="locationCallsign" class="class java.lang.String">${CALLSIGN}</entry>
-    <entry key="caLocation" class="class java.lang.String">cert/truststore-root.p12</entry>
+    <entry key="caLocation" class="class java.lang.String">certs/truststore-root.p12</entry>
     <entry key="caPassword" class="class java.lang.String">atakatak</entry>
-    <entry key="certificateLocation" class="class java.lang.String">cert/${USERNAME}.p12</entry>
+    <entry key="certificateLocation" class="class java.lang.String">certs/${USERNAME}.p12</entry>
     <entry key="clientPassword" class="class java.lang.String">atakatak</entry>
   </preference>
 </preferences>
