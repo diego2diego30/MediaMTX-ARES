@@ -222,6 +222,9 @@
             <option value="">— Select user —</option>
           </select>
           <button onclick="generateUserZip()" id="gen-btn" class="dl-btn" style="width:100%; cursor:pointer; border-color:var(--green-mid);">Generate Package</button>
+          <p style="font-size: 10px; color: #888; text-align: left; margin-top: 4px; margin-bottom: 8px; line-height: 1.3;">
+            <b>End User Devices:</b> Each device requires a unique user account to enroll onto ATAK under a unique callsign/name. If a user has not already been created for the device, scroll down to <i>ARES-WERX USERS</i> below to create one first, then select them above and click <i>Generate Package</i>.
+          </p>
 
           <div id="provision-result" style="display:none; flex-direction:column; gap:8px; align-items:center; margin-top:8px;">
             <a id="provision-dl" href="#" class="dl-btn" style="width:100%; border-color:var(--green-bright); font-weight:bold;" download>Download Package</a>
