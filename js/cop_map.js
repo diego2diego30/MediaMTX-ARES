@@ -484,7 +484,7 @@ window.fetchRemoteTakMissions = function() {
           if (!exists) {
             const opt = document.createElement('option');
             opt.value = name;
-            opt.textContent = '☁️ REMOTE MISSION ON TAK SERVER: ' + name;
+            opt.textContent = '☁️ ' + name;
             sel.appendChild(opt);
           }
           
