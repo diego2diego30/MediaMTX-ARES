@@ -786,16 +786,27 @@ klvSocket.on('message', (msg) => {
     try {
       const parsed = misb.st0601.parse(packet, { debug: false, value: true });
       let lat, lon, alt, hdg, pitch, roll;
-      
+      let hFov, sensorRelAz, slantRange; // Tag 16, 18, 21
+
       parsed.forEach(p => {
         if (p.key === 13) lat = p.value;
         if (p.key === 14) lon = p.value;
         if (p.key === 15) alt = p.value;
-        if (p.key === 5) hdg = p.value;
-        if (p.key === 6) pitch = p.value;
-        if (p.key === 7) roll = p.value;
+        if (p.key === 5)  hdg = p.value;
+        if (p.key === 6)  pitch = p.value;
+        if (p.key === 7)  roll = p.value;
+        if (p.key === 16) hFov = p.value;        // Horizontal FOV (degrees)
+        if (p.key === 18) sensorRelAz = p.value; // Sensor Relative Azimuth (degrees)
+        if (p.key === 21) slantRange = p.value;  // Slant Range (meters)
       });
-      
+
+      // Compute true sensor azimuth: platform heading + gimbal relative azimuth
+      const sensorAz = (hdg != null && sensorRelAz != null)
+        ? ((hdg + sensorRelAz) % 360 + 360) % 360
+        : (hdg || 0);
+      const liveFov   = hFov       ? parseFloat(hFov.toFixed(1))       : 60;
+      const liveRange = slantRange ? parseFloat(slantRange.toFixed(0))  : 500;
+
       if (lat !== undefined && lon !== undefined) {
          const streamId = 'demo'; // TODO: make dynamic per source
          broadcast({
@@ -805,7 +816,10 @@ klvSocket.on('message', (msg) => {
            alt: alt ? parseFloat(alt.toFixed(1)) : 0,
            hdg: hdg ? parseFloat(hdg.toFixed(1)) : 0,
            pitch: pitch ? parseFloat(pitch.toFixed(1)) : 0,
-           roll: roll ? parseFloat(roll.toFixed(1)) : 0
+           roll: roll ? parseFloat(roll.toFixed(1)) : 0,
+           sensor_azimuth: parseFloat(sensorAz.toFixed(1)), // real gimbal azimuth
+           fov: liveFov,                                     // real horizontal FOV
+           range: liveRange                                  // real slant range
          });
 
          // ── KLV → CoT: Forward drone position to TAK Server (throttled) ──
@@ -825,7 +839,8 @@ klvSocket.on('message', (msg) => {
            const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
            const rtspPort = process.env.PUBLIC_RTSP_PORT || '8554';
            const videoUrl = `rtsp://${publicHost}:${rtspPort}/${streamId}`;
-           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="0" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${cotHdg}" fov="60" range="500" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
+           // Use real sensor azimuth (Tag5+Tag18), live FOV (Tag16), live range (Tag21)
+           const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="0" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${parseFloat(sensorAz.toFixed(1))}" fov="${liveFov}" range="${liveRange}" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
            takClient.write(cotXml);
            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} → TAK Server`);
@@ -1013,6 +1028,26 @@ function connectTAK() {
 
           const staleMatch = eventXml.match(/stale=['"]([^'"]+)['"]/);
           if (staleMatch) cotObj.stale = staleMatch[1];
+
+          // ── Extract sensor geometry (camera/UAS FOV cone data) ──
+          const sensorAzMatch    = eventXml.match(/<sensor[^>]*\bazimuth=["']([^"']+)["']/i);
+          const sensorFovMatch   = eventXml.match(/<sensor[^>]*\bfov=["']([^"']+)["']/i);
+          const sensorRangeMatch = eventXml.match(/<sensor[^>]*\brange=["']([^"']+)["']/i);
+          if (sensorAzMatch || sensorFovMatch) {
+            cotObj.sensor = {
+              azimuth: sensorAzMatch    ? parseFloat(sensorAzMatch[1])    : null,
+              fov:     sensorFovMatch   ? parseFloat(sensorFovMatch[1])   : null,
+              range:   sensorRangeMatch ? parseFloat(sensorRangeMatch[1]) : null
+            };
+          }
+
+          // ── Extract track heading ──
+          const trackCourseMatch = eventXml.match(/<track[^>]*\bcourse=["']([^"']+)["']/i);
+          if (trackCourseMatch) cotObj.heading = parseFloat(trackCourseMatch[1]);
+
+          // ── Extract __video URL for PiP click ──
+          const videoUrlMatch = eventXml.match(/<__video[^>]*\burl=["']([^"']+)["']/i);
+          if (videoUrlMatch) cotObj.videoUrl = videoUrlMatch[1].trim();
           
           if ((cotObj.type.startsWith('u-d-') || cotObj.type === 'b-m-r') && cotObj.stale && new Date(cotObj.stale).getTime() < Date.now() + 300000) {
             cotObj.stale = new Date(Date.now() + 3600000).toISOString();

@@ -7,6 +7,14 @@
 let copMap;
 let markers = {};        // point markers keyed by uid
 let shapeOverlays = {};  // polygon/circle/polyline layers keyed by uid
+let fovOverlays   = {};  // FOV sector polygons keyed by same marker ID
+
+function removeFovOverlay(id) {
+  if (fovOverlays[id]) {
+    copMap.removeLayer(fovOverlays[id]);
+    delete fovOverlays[id];
+  }
+}
 window.trackData = {};
 let wsTelemetry;
 let wsReconnectTimer;
@@ -23,6 +31,48 @@ const UAS_ICON = L.icon({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
   iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
 });
+
+// ── Camera Icon (asymmetric SVG so rotation is visually meaningful) ──
+function createCameraIcon() {
+  return L.divIcon({
+    className: 'ares-uas-icon',
+    html: `<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="16" cy="16" r="10" fill="rgba(100,60,180,0.85)" stroke="#fff" stroke-width="1.5"/>
+      <polygon points="16,4 13,12 19,12" fill="#00ff5e"/>
+      <rect x="11" y="13" width="10" height="7" rx="2" fill="#fff" opacity="0.9"/>
+      <circle cx="16" cy="16.5" r="2.5" fill="rgba(100,60,180,1)"/>
+    </svg>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -16]
+  });
+}
+
+// ── Geodesic FOV wedge ────────────────────────────────────────────
+function destPoint(lat, lon, bearingDeg, distMeters) {
+  const R = 6371000;
+  const δ = distMeters / R;
+  const θ = bearingDeg * Math.PI / 180;
+  const φ1 = lat * Math.PI / 180;
+  const λ1 = lon * Math.PI / 180;
+  const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ));
+  const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2));
+  return [φ2 * 180 / Math.PI, λ2 * 180 / Math.PI];
+}
+
+function computeFovWedge(lat, lon, azimuthDeg, fovDeg, rangeMeters) {
+  const steps = 18;
+  const halfFov = fovDeg / 2;
+  const start = azimuthDeg - halfFov;
+  const end   = azimuthDeg + halfFov;
+  const coords = [[lat, lon]];
+  for (let i = 0; i <= steps; i++) {
+    const bearing = start + (end - start) * (i / steps);
+    coords.push(destPoint(lat, lon, bearing, rangeMeters));
+  }
+  coords.push([lat, lon]);
+  return coords;
+}
 
 const EMERGENCY_ICON = L.divIcon({
   className: 'emergency-icon',
@@ -575,6 +625,7 @@ function connectTelemetry() {
 // ── KLV / Drone feed ─────────────────────────────────────────────
 function processKlvData(data) {
   if (window.activePipStream && data.stream_id && data.stream_id !== window.activePipStream) {
+    removeFovOverlay('klv-drone-' + data.stream_id);
     if (markers['klv-drone-' + data.stream_id]) {
       copMap.removeLayer(markers['klv-drone-' + data.stream_id]);
       delete markers['klv-drone-' + data.stream_id];
@@ -584,14 +635,39 @@ function processKlvData(data) {
   const id = 'klv-drone-' + (data.stream_id || '1');
   const latlng = [parseFloat(data.lat), parseFloat(data.lon)];
   const callsign = data.stream_id === 'demo' ? 'DEMO DRONE' : (data.stream_id || 'KLV DRONE').toUpperCase();
+  const az  = data.sensor_azimuth ?? data.hdg ?? 0;
+  const fov = data.fov   ?? 60;
+  const rng = data.range ?? 500;
+
   if (!markers[id]) {
-    markers[id] = L.marker(latlng, { icon: UAS_ICON }).addTo(copMap);
+    markers[id] = L.marker(latlng, { icon: createCameraIcon() }).addTo(copMap);
     markers[id].bindTooltip(callsign, { permanent: true, direction: 'bottom', offset: [0, 10], className: 'tactical-map-label' });
     markers[id].on('click', () => openPip(callsign, data.stream_id || 'demo'));
   } else {
     markers[id].setLatLng(latlng);
   }
-  markers[id].bindPopup(buildPopup(callsign, [['LAT', data.lat], ['LON', data.lon], ['ALT', `${data.alt} m`]]) + 
+
+  // Rotate icon by mutating DOM — avoids recreating icon object every frame
+  const markerEl = markers[id].getElement();
+  if (markerEl) {
+    const svg = markerEl.querySelector('svg');
+    if (svg) { svg.style.transform = `rotate(${az}deg)`; svg.style.transformOrigin = 'center center'; }
+  }
+
+  // Create or update the FOV cone polygon
+  const wedge = computeFovWedge(parseFloat(data.lat), parseFloat(data.lon), az, fov, rng);
+  if (!fovOverlays[id]) {
+    fovOverlays[id] = L.polygon(wedge, {
+      color: '#00ff5e', weight: 1.5,
+      fillColor: '#00ff5e', fillOpacity: 0.12,
+      dashArray: '5, 4', interactive: true
+    }).addTo(copMap);
+    fovOverlays[id].on('click', () => openPip(callsign, data.stream_id || 'demo'));
+  } else {
+    fovOverlays[id].setLatLngs(wedge);
+  }
+
+  markers[id].bindPopup(buildPopup(callsign, [['LAT', data.lat], ['LON', data.lon], ['ALT', `${data.alt} m`], ['AZ', `${az}°`], ['FOV', `${fov}°`], ['RANGE', `${rng} m`]]) +
   `<button onclick="window.broadcastDroneToTak('${id}', '${callsign}', ${data.lat}, ${data.lon}, ${data.alt || 0})" style="margin-top:8px;background:var(--green-mid);color:#000;border:none;padding:6px 10px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 BROADCAST DRONE FEED TO TAK</button>`);
   if (Object.keys(markers).length === 1) copMap.panTo(latlng, { animate: true });
   window.trackData[id] = { id, callsign, lat: data.lat, lon: data.lon, type: 'UAS FEED' };
@@ -793,6 +869,35 @@ function processPointCot(cot) {
   if (cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
   if (cot.type.startsWith('b-m')) trackType = 'MARKER';
   window.trackData[id] = { id, callsign: cot.callsign, lat: cot.lat, lon: cot.lon, type: trackType, stale: cot.stale };
+
+  // ── FOV cone for CoT events carrying <sensor> geometry (Phase 2e) ──
+  if (cot.sensor && cot.sensor.azimuth != null) {
+    const az  = cot.sensor.azimuth;
+    const fov = cot.sensor.fov   ?? 60;
+    const rng = cot.sensor.range ?? 500;
+
+    // Rotate the marker icon to match sensor azimuth
+    const markerEl = markers[id] ? markers[id].getElement() : null;
+    if (markerEl) {
+      const svg = markerEl.querySelector('svg');
+      if (svg) { svg.style.transform = `rotate(${az}deg)`; svg.style.transformOrigin = 'center center'; }
+    }
+
+    // Create or update FOV cone
+    const wedge = computeFovWedge(cot.lat, cot.lon, az, fov, rng);
+    if (!fovOverlays[id]) {
+      fovOverlays[id] = L.polygon(wedge, {
+        color: '#00ff5e', weight: 1.5,
+        fillColor: '#00ff5e', fillOpacity: 0.12,
+        dashArray: '5, 4', interactive: !!cot.videoUrl
+      }).addTo(copMap);
+      if (cot.videoUrl) {
+        fovOverlays[id].on('click', () => openPip(cot.callsign, cot.videoUrl));
+      }
+    } else {
+      fovOverlays[id].setLatLngs(wedge);
+    }
+  }
 }
 
 // ── Shape: u-d-* ─────────────────────────────────────────────────
@@ -993,6 +1098,7 @@ window.deleteCopMarker = function(id) {
     copMap.removeLayer(shapeOverlays[id]);
     delete shapeOverlays[id];
   }
+  removeFovOverlay(id);
   if (window.drawnShapes && window.drawnShapes[id]) {
     delete window.drawnShapes[id];
   }
