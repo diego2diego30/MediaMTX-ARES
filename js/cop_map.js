@@ -256,33 +256,61 @@ function initCopMap() {
     
     if (e.layerType === 'marker') {
       const defaultName = `Target-${Date.now().toString().slice(-4)}`;
+      
+      // Inject the visual picker template
       const popupContent = `
-        <div style="font-family: var(--font-main); min-width: 220px;">
-          <strong style="color:var(--green-bright)">NEW TACTICAL MARKER</strong><br>
-          <div style="margin-top:10px;border-top:1px solid var(--green-dim);padding-top:8px;">
-            <label style="color:var(--green-bright);font-size:11px;">NAME / CALLSIGN: 
-              <input type="text" id="edit-marker-name-${layer._copId}" value="${defaultName}" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;width:100%;padding:2px;margin-top:2px;margin-bottom:6px;">
-            </label><br>
-            <label style="color:var(--green-bright);font-size:11px;">TAK SUPPORTED MARKER TYPE: 
-              <select id="edit-marker-type-${layer._copId}" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;width:100%;padding:2px;margin-top:2px;margin-bottom:6px;">
-                <option value="a-f-G-U-C-I">Friendly Infantry</option>
-                <option value="a-f-G-U-C-A">Friendly Armor / Mech</option>
-                <option value="a-f-G-U-C-M">Friendly Medical</option>
-                <option value="a-f-G-U-C-HQ">Friendly HQ / Command</option>
-                <option value="a-f-A-M-H">Friendly Rotary Wing / Helicopter</option>
-                <option value="a-f-A-M-F">Friendly Fixed Wing / Plane</option>
-                <option value="a-h-G-U-C">Hostile Ground Unit</option>
-                <option value="a-h-G-U-C-A">Hostile Armor</option>
-                <option value="a-n-G-U-C-M">Neutral Medical / Civ</option>
-                <option value="a-u-A-M-F-Q">Unknown Drone / UAS</option>
-                <option value="b-m-p-s-m">Standard Point Marker</option>
-              </select>
-            </label><br>
-            <button onclick="window.broadcastCustomMarker('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 BROADCAST MARKER TO TAK</button>
+        <div style="font-family: var(--font-main); min-width: 320px; max-width: 380px;">
+          <strong style="color:var(--green-bright); display:block; text-align:center; margin-bottom: 8px;">NEW TACTICAL MARKER</strong>
+          
+          <!-- Name Input & Live Preview Row -->
+          <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding: 8px; background: rgba(0, 255, 94, 0.05); border: 1px solid var(--green-dim);">
+            <div id="icon-live-preview-${layer._copId}" style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: #000; border: 1px solid var(--green-dim); border-radius: 4px;">
+              <!-- Preview SVG injected here -->
+            </div>
+            <div style="flex-grow: 1;">
+              <label style="color:var(--green-bright);font-size:10px; display:block; margin-bottom:2px;">CALLSIGN:</label>
+              <input type="text" id="edit-marker-name-${layer._copId}" value="${defaultName}" oninput="window.updateMarkerPreview('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:12px;width:100%;padding:4px; box-sizing:border-box;">
+              <!-- Hidden input for selected type -->
+              <input type="hidden" id="edit-marker-type-${layer._copId}" value="a-u-G">
+            </div>
           </div>
+
+          <!-- Affiliation Toggle -->
+          <div style="margin-bottom: 10px; display: flex; justify-content: space-between; gap: 4px;">
+            <button onclick="window.setMarkerAffiliation('${layer._copId}', 'f')" id="affil-btn-f-${layer._copId}" style="flex:1; padding: 4px; font-size: 10px; background: #000; color: #3498db; border: 1px solid #3498db; cursor: pointer;">FRIENDLY</button>
+            <button onclick="window.setMarkerAffiliation('${layer._copId}', 'h')" id="affil-btn-h-${layer._copId}" style="flex:1; padding: 4px; font-size: 10px; background: #000; color: #e74c3c; border: 1px solid var(--green-dim); cursor: pointer;">HOSTILE</button>
+            <button onclick="window.setMarkerAffiliation('${layer._copId}', 'n')" id="affil-btn-n-${layer._copId}" style="flex:1; padding: 4px; font-size: 10px; background: #000; color: #2ecc71; border: 1px solid var(--green-dim); cursor: pointer;">NEUTRAL</button>
+            <button onclick="window.setMarkerAffiliation('${layer._copId}', 'u')" id="affil-btn-u-${layer._copId}" style="flex:1; padding: 4px; font-size: 10px; background: rgba(241, 196, 15, 0.2); color: #f1c40f; border: 1px solid #f1c40f; cursor: pointer;">UNKNOWN</button>
+          </div>
+
+          <!-- Category Selector -->
+          <select id="icon-category-sel-${layer._copId}" onchange="window.renderIconGrid('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;width:100%;padding:4px;margin-bottom:8px;box-sizing:border-box;">
+            <option value="ground">Ground Units</option>
+            <option value="air">Air & Aviation</option>
+            <option value="sea">Sea & Subsurface</option>
+            <option value="installation">Structures / Installations</option>
+            <option value="tactical">Tactical & Emergency (Custom)</option>
+          </select>
+
+          <!-- Icon Grid Container -->
+          <div id="icon-grid-${layer._copId}" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; max-height: 160px; overflow-y: auto; padding: 4px; border: 1px solid var(--green-dim); background: #000; margin-bottom: 10px;">
+            <!-- Icons injected here via JS -->
+          </div>
+
+          <button onclick="window.broadcastCustomMarker('${layer._copId}')" style="background:var(--green-bright);color:#000;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,94,0.3);">📡 BROADCAST TO TAK</button>
         </div>
       `;
-      layer.bindPopup(popupContent).openPopup();
+      layer.bindPopup(popupContent, { maxWidth: 400 }).openPopup();
+      
+      // Initialize state for this marker popup
+      window._markerStates = window._markerStates || {};
+      window._markerStates[layer._copId] = { affiliation: 'u', category: 'ground' };
+      
+      // We need a short timeout to let the popup HTML render into the DOM before we manipulate it
+      setTimeout(() => {
+        window.renderIconGrid(layer._copId);
+        window.selectMarkerIcon(layer._copId, 'a-u-G'); // Default unknown ground
+      }, 50);
     } else {
       const popupContent = `
         <div style="font-family: var(--font-main);">
@@ -306,23 +334,43 @@ function initCopMap() {
     const layer = item.layer;
     
     const nameInput = document.getElementById('edit-marker-name-' + id);
-    const typeSelect = document.getElementById('edit-marker-type-' + id);
-    if (!nameInput || !typeSelect) return;
+    const typeInput = document.getElementById('edit-marker-type-' + id);
+    if (!nameInput || !typeInput) return;
     
     const name = nameInput.value;
-    const cotType = typeSelect.value;
+    let cotType = typeInput.value;
     
-    if (typeof cotToSidc === 'function') {
-      const sidc = cotToSidc(cotType);
-      const sym = new ms.Symbol(sidc, { size: 25 });
-      const iconObj = L.divIcon({
-        className: 'tak-marker-icon',
-        html: sym.asSVG(),
-        iconSize: [sym.getSize().width, sym.getSize().height],
-        iconAnchor: [sym.getAnchor().x, sym.getAnchor().y]
-      });
-      layer.setIcon(iconObj);
+    // We need to inject the affiliation into the atom type if it's an a-* type
+    if (cotType.startsWith('a-?-')) {
+      const state = window._markerStates[id] || { affiliation: 'u' };
+      cotType = cotType.replace('a-?-', `a-${state.affiliation}-`);
     }
+
+    // Determine the icon to display locally immediately
+    // For custom icons, getTakIcon will handle them, but we need to pass a mock cot object
+    let iconObj;
+    const mockCot = { type: cotType, callsign: name, remarks: '' };
+    
+    // Check if it's a 2525 atom
+    if (typeof cotToSidc === 'function' && cotType.startsWith('a-')) {
+      const sidc = cotToSidc(cotType);
+      if (sidc) {
+        const sym = new ms.Symbol(sidc, { size: 25 });
+        iconObj = L.divIcon({
+          className: 'tak-marker-icon',
+          html: sym.asSVG(),
+          iconSize: [sym.getSize().width, sym.getSize().height],
+          iconAnchor: [sym.getAnchor().x, sym.getAnchor().y]
+        });
+      }
+    }
+    
+    // Fallback to getTakIcon for custom types (b-m-p-s-m, b-i-v, etc.) or if sidc failed
+    if (!iconObj && typeof getTakIcon === 'function') {
+      iconObj = getTakIcon(mockCot);
+    }
+    
+    if (iconObj) layer.setIcon(iconObj);
     
     layer.bindTooltip(name, { direction: 'top', className: 'tak-marker-tooltip', permanent: true });
     layer.closePopup();
@@ -350,6 +398,168 @@ function initCopMap() {
       showCopAlert('Cannot broadcast: WebSocket disconnected.', 'error');
     }
   };
+
+  // --- Visual Marker Picker Implementation ---
+  
+  const ICON_CATALOG = {
+    ground: [
+      { type: 'a-?-G', label: 'Ground (Generic)' },
+      { type: 'a-?-G-U-C-I', label: 'Infantry' },
+      { type: 'a-?-G-U-C-A', label: 'Armor / Mech' },
+      { type: 'a-?-G-U-C-M', label: 'Medical' },
+      { type: 'a-?-G-U-C-HQ', label: 'HQ / Command' },
+      { type: 'a-?-G-U-C-S', label: 'Supply' },
+      { type: 'a-?-G-U-C-ES', label: 'Engineer' }
+    ],
+    air: [
+      { type: 'a-?-A', label: 'Air (Generic)' },
+      { type: 'a-?-A-M-H', label: 'Rotary Wing' },
+      { type: 'a-?-A-M-F', label: 'Fixed Wing' },
+      { type: 'a-?-A-M-F-Q', label: 'Drone / UAS' }
+    ],
+    sea: [
+      { type: 'a-?-S', label: 'Sea Surface' },
+      { type: 'a-?-U', label: 'Subsurface' }
+    ],
+    installation: [
+      { type: 'a-?-G-I', label: 'Installation' }
+    ],
+    tactical: [
+      { type: 'b-m-p-s-m', label: 'Standard Pin', customEmoji: '📍', color: '#f1c40f' },
+      { type: 'b-i-v', label: 'Camera / Video', customEmoji: '🎥', color: '#9b59b6' },
+      { type: 'b-a-f', label: 'Emergency', customEmoji: '🚨', color: '#e74c3c' },
+      { type: 'b-m-p-f', label: 'Bicycle / Bike', remarks: 'bicycle', customEmoji: '🚲', color: '#16a085' },
+      { type: 'a-?-G-E-V-C-U', label: 'Vehicle / Car', remarks: 'vehicle', customEmoji: '🚗', color: '#e67e22' },
+      { type: 'b-m-p-c', label: 'Checkpoint', remarks: 'checkpoint', customEmoji: '👁️', color: '#2ecc71' }
+    ]
+  };
+
+  window.setMarkerAffiliation = function(id, affil) {
+    if (!window._markerStates || !window._markerStates[id]) return;
+    window._markerStates[id].affiliation = affil;
+    
+    // Update button styles
+    const colors = { f: '#3498db', h: '#e74c3c', n: '#2ecc71', u: '#f1c40f' };
+    ['f', 'h', 'n', 'u'].forEach(a => {
+      const btn = document.getElementById(`affil-btn-${a}-${id}`);
+      if (btn) {
+        if (a === affil) {
+          btn.style.background = `rgba(${hexToRgb(colors[a])}, 0.2)`;
+          btn.style.border = `1px solid ${colors[a]}`;
+        } else {
+          btn.style.background = '#000';
+          btn.style.border = '1px solid var(--green-dim)';
+        }
+      }
+    });
+
+    // Re-render grid and preview
+    window.renderIconGrid(id);
+    window.updateMarkerPreview(id);
+  };
+
+  // Helper for hex to rgb for button backgrounds
+  function hexToRgb(hex) {
+    const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
+    return result ? `${parseInt(result[1], 16)},${parseInt(result[2], 16)},${parseInt(result[3], 16)}` : '255,255,255';
+  }
+
+  window.renderIconGrid = function(id) {
+    const gridContainer = document.getElementById(`icon-grid-${id}`);
+    const categorySel = document.getElementById(`icon-category-sel-${id}`);
+    if (!gridContainer || !categorySel || !window._markerStates[id]) return;
+
+    const category = categorySel.value;
+    window._markerStates[id].category = category;
+    const icons = ICON_CATALOG[category] || [];
+    const affil = window._markerStates[id].affiliation;
+    const selectedType = document.getElementById(`edit-marker-type-${id}`)?.value;
+
+    let html = '';
+    icons.forEach(item => {
+      // Resolve affiliation in type string
+      let resolvedType = item.type;
+      if (resolvedType.startsWith('a-?-')) {
+        resolvedType = resolvedType.replace('a-?-', `a-${affil}-`);
+      }
+
+      let iconHtml = '';
+      if (item.customEmoji) {
+        iconHtml = `<div style="background:${item.color};color:#fff;border:1px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;margin:auto;">${item.customEmoji}</div>`;
+      } else if (typeof cotToSidc === 'function') {
+        const sidc = cotToSidc(resolvedType);
+        if (sidc) {
+          const sym = new ms.Symbol(sidc, { size: 20 });
+          iconHtml = sym.asSVG();
+        }
+      }
+
+      const isSelected = selectedType === resolvedType || (item.type.includes('?') && selectedType.replace(/a-[a-z]-/, 'a-?-') === item.type);
+      const bg = isSelected ? 'rgba(0, 255, 94, 0.2)' : 'transparent';
+      const border = isSelected ? '1px solid var(--green-bright)' : '1px solid transparent';
+
+      html += `
+        <div onclick="window.selectMarkerIcon('${id}', '${resolvedType}')" title="${item.label}" style="cursor:pointer; padding: 4px; border-radius: 4px; background: ${bg}; border: ${border}; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+          ${iconHtml}
+          <div style="font-size: 8px; text-align: center; color: var(--green-dim); margin-top: 4px; line-height: 1;">${item.label.split(' ')[0]}</div>
+        </div>
+      `;
+    });
+
+    gridContainer.innerHTML = html;
+  };
+
+  window.selectMarkerIcon = function(id, cotType) {
+    const typeInput = document.getElementById(`edit-marker-type-${id}`);
+    if (typeInput) typeInput.value = cotType;
+    
+    window.renderIconGrid(id); // Re-render to update selection highlight
+    window.updateMarkerPreview(id);
+  };
+
+  window.updateMarkerPreview = function(id) {
+    const previewContainer = document.getElementById(`icon-live-preview-${id}`);
+    const typeInput = document.getElementById(`edit-marker-type-${id}`);
+    const nameInput = document.getElementById(`edit-marker-name-${id}`);
+    if (!previewContainer || !typeInput) return;
+
+    let cotType = typeInput.value;
+    const name = nameInput ? nameInput.value : '';
+
+    // If it's a template type with '?', replace with current affiliation
+    if (cotType.startsWith('a-?-')) {
+      const affil = window._markerStates[id] ? window._markerStates[id].affiliation : 'u';
+      cotType = cotType.replace('a-?-', `a-${affil}-`);
+      typeInput.value = cotType;
+    }
+
+    // Find custom emoji config if exists
+    let customEmojiConfig = null;
+    for (const cat of Object.values(ICON_CATALOG)) {
+      const match = cat.find(i => i.type.replace('a-?-', `a-${window._markerStates[id]?.affiliation || 'u'}-`) === cotType || i.type === cotType);
+      if (match && match.customEmoji) {
+        customEmojiConfig = match;
+        break;
+      }
+    }
+
+    let iconHtml = '';
+    if (customEmojiConfig) {
+       iconHtml = `<div style="background:${customEmojiConfig.color};color:#fff;border:1px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow: 0 0 8px ${customEmojiConfig.color};">${customEmojiConfig.customEmoji}</div>`;
+    } else if (typeof cotToSidc === 'function' && cotType.startsWith('a-')) {
+      const sidc = cotToSidc(cotType);
+      if (sidc) {
+        const sym = new ms.Symbol(sidc, { size: 25 });
+        iconHtml = sym.asSVG();
+      }
+    } else {
+      // Fallback
+      iconHtml = `<div style="background:#f1c40f;color:#000;border:1px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;">📍</div>`;
+    }
+
+    previewContainer.innerHTML = iconHtml;
+  };
+
 
   window.broadcastShape = function(id) {
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
