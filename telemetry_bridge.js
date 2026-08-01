@@ -765,24 +765,53 @@ const klvSocket = dgram.createSocket('udp4');
 let klvBuffer = Buffer.alloc(0);
 let lastKlvCotPush = 0; // Throttle KLV→CoT pushes to TAK Server
 
+// ── BER-length decoder for KLV TLV framing ──────────────────────────────────
+// Returns { payloadLength, headerBytes } or null if buffer is too short.
+// ASN.1 BER: if first byte < 0x80 → length IS that byte (short form).
+//            if first byte = 0x81 → next 1 byte is length (1-byte long form).
+//            if first byte = 0x82 → next 2 bytes are length (2-byte long form).
+function decodeBerLength(buf, offset) {
+  if (offset >= buf.length) return null;
+  const first = buf[offset];
+  if (first < 0x80) {
+    return { payloadLength: first, headerBytes: 1 };
+  } else if (first === 0x81) {
+    if (offset + 1 >= buf.length) return null;
+    return { payloadLength: buf[offset + 1], headerBytes: 2 };
+  } else if (first === 0x82) {
+    if (offset + 2 >= buf.length) return null;
+    return { payloadLength: (buf[offset + 1] << 8) | buf[offset + 2], headerBytes: 3 };
+  }
+  // Unsupported BER long form (>2-byte length) — skip this sync key
+  return null;
+}
+
 klvSocket.on('message', (msg) => {
   klvBuffer = Buffer.concat([klvBuffer, msg]);
 
-  let index;
-  while ((index = klvBuffer.indexOf(SYNC_KEY)) !== -1) {
-    let nextIndex = klvBuffer.indexOf(SYNC_KEY, index + 16);
-    let packet;
-    
-    if (nextIndex !== -1) {
-      packet = klvBuffer.subarray(index, nextIndex);
-      klvBuffer = klvBuffer.subarray(nextIndex);
-    } else {
-      if (klvBuffer.length - index > 4096) {
-         klvBuffer = klvBuffer.subarray(index + 16);
-      }
-      break;
-    }
-    
+  // ── BER-length framing: extract each KLV packet precisely ──────────────────
+  // Discard any leading bytes before the first SYNC_KEY.
+  let syncPos = klvBuffer.indexOf(SYNC_KEY);
+  while (syncPos !== -1) {
+    // Drop any garbage before the SYNC_KEY.
+    if (syncPos > 0) klvBuffer = klvBuffer.subarray(syncPos);
+
+    const KEY_LEN = 16; // SYNC_KEY is always 16 bytes (MISB UL key)
+
+    // Try to read the BER length that immediately follows the 16-byte key.
+    const berResult = decodeBerLength(klvBuffer, KEY_LEN);
+    if (!berResult) break; // Not enough data yet — wait for more UDP packets.
+
+    const { payloadLength, headerBytes } = berResult;
+    const totalPacketLen = KEY_LEN + headerBytes + payloadLength;
+
+    // Wait until the full packet has arrived in the buffer.
+    if (klvBuffer.length < totalPacketLen) break;
+
+    // Extract exactly the right number of bytes — zero trailing garbage.
+    const packet = klvBuffer.subarray(0, totalPacketLen);
+    klvBuffer = klvBuffer.subarray(totalPacketLen);
+
     try {
       const parsed = misb.st0601.parse(packet, { debug: false, value: true });
       let lat, lon, alt, hdg, pitch, roll;
@@ -846,7 +875,11 @@ klvSocket.on('message', (msg) => {
            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} sensor_az=${parseFloat(sensorAz.toFixed(1))} fov=${liveFov} range=${liveRange} → TAK Server`);
          }
       }
-    } catch(e) {}
+    } catch(e) { console.warn('[KLV Parse Error]', e.message); }
+
+    // Re-scan: after consuming a packet, klvBuffer now starts at the next byte.
+    // Search for the next SYNC_KEY to continue draining.
+    syncPos = klvBuffer.indexOf(SYNC_KEY);
   }
 });
 
