@@ -16,6 +16,49 @@ function removeFovOverlay(id) {
   }
 }
 window.trackData = {};
+window.telemetryMode = localStorage.getItem('ares_telemetry_mode') || 'DIRECT';
+
+window.setTelemetryMode = function(mode) {
+  window.telemetryMode = mode;
+  localStorage.setItem('ares_telemetry_mode', mode);
+  
+  const btnDirect = document.getElementById('mode-btn-direct');
+  const btnTak = document.getElementById('mode-btn-tak');
+  if (btnDirect && btnTak) {
+    if (mode === 'DIRECT') {
+      btnDirect.style.background = '#00ff5e';
+      btnDirect.style.color = '#000';
+      btnTak.style.background = 'transparent';
+      btnTak.style.color = '#00ff5e';
+    } else {
+      btnTak.style.background = '#00ff5e';
+      btnTak.style.color = '#000';
+      btnDirect.style.background = 'transparent';
+      btnDirect.style.color = '#00ff5e';
+    }
+  }
+
+  // Purge non-active markers on mode switch
+  if (window.copMap) {
+    Object.keys(markers).forEach(id => {
+      if (mode === 'TAK' && id.startsWith('klv-drone-')) {
+        copMap.removeLayer(markers[id]);
+        delete markers[id];
+        removeFovOverlay(id);
+        delete window.trackData[id];
+      } else if (mode === 'DIRECT' && id.startsWith('mtx-uas-')) {
+        copMap.removeLayer(markers[id]);
+        delete markers[id];
+        removeFovOverlay(id);
+        delete window.trackData[id];
+      }
+    });
+  }
+
+  if (window.showTacticalBanner) {
+    showTacticalBanner(`TELEMETRY INGEST: ${mode === 'DIRECT' ? '⚡ 30Hz DIRECT WEBSOCKET' : '🛰️ TAK SERVER COT'}`);
+  }
+};
 
 // ── Lock-On Target ────────────────────────────────────────────────
 let lockTarget = null; // marker ID currently locked
@@ -890,6 +933,8 @@ function connectTelemetry() {
 
 // ── KLV / Drone feed ─────────────────────────────────────────────
 function processKlvData(data) {
+  if (window.telemetryMode === 'TAK') return;
+
   if (window.activePipStream && data.stream_id && data.stream_id !== window.activePipStream) {
     removeFovOverlay('klv-drone-' + data.stream_id);
     if (markers['klv-drone-' + data.stream_id]) {
@@ -1177,10 +1222,10 @@ function processPointCot(cot) {
     removeFovOverlay(`video-${streamName}`);
   }
 
-  // If a TAK server drone marker arrives, but we already have a 0-latency KLV marker for it natively, suppress the TAK one
+  // Handling for mtx-uas- TAK server drone markers depending on active ingest mode
   if (id.startsWith('mtx-uas-')) {
     const streamName = id.replace('mtx-uas-', '');
-    if (markers[`klv-drone-${streamName}`]) {
+    if (window.telemetryMode === 'DIRECT' && markers[`klv-drone-${streamName}`]) {
       if (markers[id]) {
         copMap.removeLayer(markers[id]);
         delete markers[id];
@@ -1188,6 +1233,11 @@ function processPointCot(cot) {
       removeFovOverlay(id);
       delete window.trackData[id];
       return;
+    } else if (window.telemetryMode === 'TAK' && markers[`klv-drone-${streamName}`]) {
+      copMap.removeLayer(markers[`klv-drone-${streamName}`]);
+      delete markers[`klv-drone-${streamName}`];
+      removeFovOverlay(`klv-drone-${streamName}`);
+      delete window.trackData[`klv-drone-${streamName}`];
     }
   }
 
@@ -1550,6 +1600,9 @@ function escapeHtml(str) {
 
 // ── Sidebar & Demo Controls ───────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+  // Sync UI state for telemetry mode switch
+  window.setTelemetryMode(window.telemetryMode);
+
   // Sidebar toggle
   const sidebar   = document.getElementById('cop-sidebar');
   const toggleBtn = document.getElementById('sidebar-toggle');
