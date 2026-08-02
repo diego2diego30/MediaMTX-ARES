@@ -964,7 +964,7 @@ klvSocket.on('message', (msg) => {
          if (takClient && !takClient.destroyed && (now - lastKlvCotPush > 3000)) {
            lastKlvCotPush = now;
            const cotNow = new Date();
-           const cotStale = new Date(cotNow.getTime() + 60000); // 60s stale
+           const cotStale = new Date(cotNow.getTime() + 180000); // 180s stale
            const cotUid = `mtx-uas-${streamId}`;
            const cotCallsign = `MTX-${streamId.toUpperCase()}`;
            const cotLat = parseFloat(lat.toFixed(6));
