@@ -452,6 +452,10 @@ function initCopMap() {
     attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
   });
 
+  const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
+  });
+
   const esriSatPure = L.tileLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 19, attribution: '&copy; Esri, USDA, USGS, AEX, GeoEye' }
@@ -495,7 +499,8 @@ function initCopMap() {
     'Google Satellite': googleSat,
     'Google Streets': googleStreets,
     'Google Terrain': googleTerrain,
-    'Carto Dark': cartoDark
+    'Carto Dark': cartoDark,
+    'Carto Light': cartoLight
   };
   const overlayMaps = { 'Camp Lejeune MBTiles': localTiles };
   L.control.layers(baseMaps, overlayMaps, { position: 'bottomleft' }).addTo(copMap);
