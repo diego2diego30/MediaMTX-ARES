@@ -475,9 +475,26 @@ function initCopMap() {
     attribution: 'Camp Lejeune MBTiles'
   }).addTo(copMap);
 
+  const googleSat = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+    maxZoom: 20, attribution: '&copy; Google'
+  });
+  const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    maxZoom: 20, attribution: '&copy; Google'
+  });
+  const googleStreets = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+    maxZoom: 20, attribution: '&copy; Google'
+  });
+  const googleTerrain = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+    maxZoom: 20, attribution: '&copy; Google'
+  });
+
   const baseMaps = {
-    'Satellite + Labels': esriHybrid,
-    'Satellite (Pure)': esriSatPure,
+    'Satellite + Labels (Esri)': esriHybrid,
+    'Satellite (Esri)': esriSatPure,
+    'Google Hybrid': googleHybrid,
+    'Google Satellite': googleSat,
+    'Google Streets': googleStreets,
+    'Google Terrain': googleTerrain,
     'Carto Dark': cartoDark
   };
   const overlayMaps = { 'Camp Lejeune MBTiles': localTiles };
