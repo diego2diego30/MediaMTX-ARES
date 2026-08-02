@@ -1741,8 +1741,25 @@ wss.on('connection', (ws) => {
             console.log(`[CoT PUSH] Shape ${callsign} (${uid}) sent to TAK Server${data.destCallsign ? ' for ' + data.destCallsign : ''}.`);
           }
         }
-        // Broadcast back to clients so they know it was sent successfully
-        broadcast([{ uid, type: cotType, lat, lon, callsign }]);
+        // Broadcast back to clients so they know it was sent successfully. Must carry the
+        // full geometry/style (not just uid/type/lat/lon/callsign) — processShapeCot on the
+        // client only replaces what's already rendered for this uid once it can rebuild a
+        // layer from the CoT; a geometry-less echo used to make it delete the existing shape
+        // and render nothing, so the shape would vanish the moment anyone re-broadcast it.
+        const echoShape = {
+          uid, type: cotType, lat, lon, callsign, stale: stale.toISOString(),
+          strokeColor: strokeColorVal, fillColor: fillColorVal, strokeWeight: strokeWeightVal
+        };
+        if (cotType === 'u-d-c') {
+          echoShape.ellipse = { major: data.radius, minor: data.radius, angle: 0 };
+        } else if (data.vertices && data.vertices.length > 0) {
+          echoShape.vertices = data.vertices;
+        }
+        if (data.attachmentUrl) {
+          echoShape.attachmentUrl = data.attachmentUrl;
+          echoShape.attachmentName = data.attachmentName || 'Attachment';
+        }
+        broadcast([echoShape]);
       } else if (data.cmd === 'push_geochat') {
         const sender = data.senderCallsign || 'ARES COP';
         const message = data.message || '';

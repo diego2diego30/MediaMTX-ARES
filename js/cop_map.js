@@ -1716,8 +1716,6 @@ function processPointCot(cot) {
 // ── Shape: u-d-* ─────────────────────────────────────────────────
 function processShapeCot(cot) {
   const id = cot.uid;
-  // Remove existing layer if present
-  if (shapeOverlays[id]) { copMap.removeLayer(shapeOverlays[id]); delete shapeOverlays[id]; }
 
   const style = shapeStyle(cot);
   style.color = cssColorToHex(style.color); // keep it re-broadcastable — see cssColorToHex
@@ -1757,7 +1755,13 @@ function processShapeCot(cot) {
     layer.bindPopup(buildPopup(label, [['TYPE', 'Line'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
   }
 
+  // A CoT update that lacks the geometry to build a layer (e.g. the optimistic echo
+  // broadcast right after a push_shape_cot, or any other partial update) must not touch
+  // whatever's already rendered for this uid — only swap it out once we have a valid
+  // replacement ready, otherwise the shape would silently vanish from the map.
   if (layer) {
+    if (shapeOverlays[id]) { copMap.removeLayer(shapeOverlays[id]); delete shapeOverlays[id]; }
+
     window.drawnShapes = window.drawnShapes || {};
     window.drawnShapes[id] = {
       layer, type: shapeKind, shapeType: shapeKind,
@@ -1787,8 +1791,10 @@ function processShapeCot(cot) {
 // ── Route: b-m-r ─────────────────────────────────────────────────
 function processRouteCot(cot) {
   const id = cot.uid;
-  if (shapeOverlays[id]) { copMap.removeLayer(shapeOverlays[id]); delete shapeOverlays[id]; }
+  // See processShapeCot: don't tear down an existing route until we know we can rebuild
+  // one — a geometry-less update (e.g. an optimistic broadcast echo) must leave it alone.
   if (!cot.vertices || cot.vertices.length < 2) return;
+  if (shapeOverlays[id]) { copMap.removeLayer(shapeOverlays[id]); delete shapeOverlays[id]; }
 
   const style = shapeStyle(cot);
   style.color = cssColorToHex(style.color); // keep it re-broadcastable — see cssColorToHex
