@@ -304,7 +304,14 @@ window.attachFileToTrack = function(id) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: file.name, data: e.target.result })
       })
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) {
+          let msg = r.statusText;
+          try { const errObj = await r.json(); if (errObj.error) msg = errObj.error; } catch(e) {}
+          throw new Error(`${r.status} ${msg}`);
+        }
+        return r.json();
+      })
       .then(data => {
         if (data.url) {
           const td = window.trackData[id];
@@ -336,7 +343,7 @@ window.attachFileToTrack = function(id) {
           showTacticalBanner('⚠️ ATTACHMENT FAILED');
         }
       })
-      .catch(() => showTacticalBanner('⚠️ ATTACHMENT ERROR'));
+      .catch(err => showTacticalBanner('⚠️ ATTACHMENT ERROR: ' + err.message));
     };
     reader.readAsDataURL(file);
   };
@@ -1657,7 +1664,14 @@ function initChat() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filename: file.name, data: e.target.result })
         })
-        .then(r => r.json())
+        .then(async r => {
+          if (!r.ok) {
+            let msg = r.statusText;
+            try { const errObj = await r.json(); if (errObj.error) msg = errObj.error; } catch(e) {}
+            throw new Error(`${r.status} ${msg}`);
+          }
+          return r.json();
+        })
         .then(data => {
           attachBtn.textContent = '📎';
           if (data.url) {
@@ -1669,7 +1683,7 @@ function initChat() {
         })
         .catch(err => {
           attachBtn.textContent = '📎';
-          showTacticalBanner('⚠️ UPLOAD ERROR');
+          showTacticalBanner('⚠️ UPLOAD ERROR: ' + err.message);
         });
         fileInput.value = '';
       };
