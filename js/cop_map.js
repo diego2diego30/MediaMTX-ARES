@@ -1709,6 +1709,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) wsTelemetry.send(JSON.stringify(payload));
   }
   document.getElementById('demo-active-toggle').addEventListener('change', e => sendDemoControl({ cmd:'toggle_demo', state:e.target.checked }));
+  document.getElementById('demo-alpha-toggle').addEventListener('change', e => sendDemoControl({ cmd:'toggle_alpha_targets', state:e.target.checked }));
   document.getElementById('demo-density-slider').addEventListener('input',  e => sendDemoControl({ cmd:'set_density', density:parseInt(e.target.value,10) }));
   document.getElementById('demo-pattern-select').addEventListener('change', e => sendDemoControl({ cmd:'set_pattern', pattern:e.target.value }));
 

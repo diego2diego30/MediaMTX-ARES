@@ -676,6 +676,7 @@ let activeExtractPath = null;
 let pollInterval = null;
 let simInterval = null;
 let allowSimulation = true;
+let allowAlphaTargets = false;
 
 let simDensity = 5;
 let simPattern = 'orbit';
@@ -911,7 +912,7 @@ klvSocket.bind(9998, () => {
 
 // Periodically broadcast CoT
 setInterval(() => {
-  if (Math.random() > 0.5) broadcast(generateCotTick());
+  if (allowAlphaTargets && Math.random() > 0.5) broadcast(generateCotTick());
 }, 2000);
 
 function startFfmpegExtraction(pathName) {
@@ -1240,7 +1241,7 @@ function ensureSimBroadcast() {
   simInterval = setInterval(() => {
     if (!activeExtractPath && wss.clients.size > 0) {
       broadcast(generateTelemetryTick());
-      broadcast(generateCotTick());
+      if (allowAlphaTargets) broadcast(generateCotTick());
     }
   }, 500);
 }
@@ -1367,6 +1368,9 @@ wss.on('connection', (ws) => {
         } else if (wss.clients.size > 0) {
           ensureSimBroadcast();
         }
+      } else if (data.cmd === 'toggle_alpha_targets') {
+        allowAlphaTargets = data.state;
+        console.log(`[Demo] Alpha targets active: ${allowAlphaTargets}`);
       } else if (data.cmd === 'update_cop_location') {
         copLocation.lat = data.lat || 0;
         copLocation.lon = data.lon || 0;
