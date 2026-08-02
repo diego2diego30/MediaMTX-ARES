@@ -500,12 +500,15 @@ function initCopMap() {
 
           <button onclick="window.saveCustomMarker('${layer._copId}', true)" style="background:var(--green-bright);color:#000;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,94,0.3); margin-bottom: 8px;">📡 BROADCAST TO TAK</button>
           
-          <div style="display:flex; gap: 4px; margin-bottom: 8px;">
-            <select id="dest-new-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
-              <option value="">-- SELECT RECIPIENT --</option>
-              ${(window.getTakRecipients ? window.getTakRecipients() : []).map(c => '<option value="'+c+'">'+c+'</option>').join('')}
-            </select>
-            <button onclick="window.saveCustomMarker('${layer._copId}', true, document.getElementById('dest-new-user-${layer._copId}').value)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+          <div style="margin-bottom: 8px;">
+            <div style="display:flex; gap: 4px; margin-bottom: 4px;">
+              <select id="dest-new-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
+                <option value="">-- SELECT RECIPIENT --</option>
+                ${(window.getTakRecipients ? window.getTakRecipients() : []).map(c => '<option value="'+c+'">'+c+'</option>').join('')}
+              </select>
+              <button onclick="window.saveCustomMarker('${layer._copId}', true, document.getElementById('dest-new-user-${layer._copId}').value, document.getElementById('dp-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+            </div>
+            <label style="color:var(--green-bright);font-size:10px; display:flex; align-items:center; cursor:pointer;"><input type="checkbox" id="dp-toggle-${layer._copId}" checked style="margin-right:4px;"> Send as Mission Package (GeoChat)</label>
           </div>
           
           <button onclick="window.saveCustomMarker('${layer._copId}', false)" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; margin-bottom: 8px;">💾 SAVE TO ARES COP (LOCAL)</button>
@@ -534,6 +537,16 @@ function initCopMap() {
             <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
             <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+            <div style="margin-top:8px;">
+              <div style="display:flex; gap: 4px; margin-bottom: 4px;">
+                <select id="dest-shape-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
+                  <option value="">-- SELECT RECIPIENT --</option>
+                  ${(window.getTakRecipients ? window.getTakRecipients() : []).map(c => '<option value="'+c+'">'+c+'</option>').join('')}
+                </select>
+                <button onclick="window.broadcastShape('${layer._copId}', document.getElementById('dest-shape-user-${layer._copId}').value, document.getElementById('dp-shape-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+              </div>
+              <label style="color:var(--green-bright);font-size:10px; display:flex; align-items:center; cursor:pointer;"><input type="checkbox" id="dp-shape-toggle-${layer._copId}" checked style="margin-right:4px;"> Send as Mission Package (GeoChat)</label>
+            </div>
             <button onclick="window.deleteCopMarker('${layer._copId}')" style="margin-top:8px;background:#ff4444;color:#fff;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">🗑️ DELETE SHAPE</button>
           </div>
         </div>
@@ -542,7 +555,7 @@ function initCopMap() {
     }
   });
 
-  window.saveCustomMarker = function(id, doBroadcast = true, recipient = null) {
+  window.saveCustomMarker = function(id, doBroadcast = true, recipient = null, sendAsMissionPackage = false) {
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
     const item = window.drawnShapes[id];
     const layer = item.layer;
@@ -605,7 +618,8 @@ function initCopMap() {
             lat: layer.getLatLng().lat, 
             lon: layer.getLatLng().lng, 
             type: cotType,
-            destCallsign: recipient
+            destCallsign: recipient,
+            sendAsMissionPackage: sendAsMissionPackage
           }));
           if (typeof showTacticalBanner === 'function') {
             showTacticalBanner('📩 SENT ' + name + ' TO ' + recipient);
@@ -825,7 +839,7 @@ function initCopMap() {
   };
 
 
-  window.broadcastShape = function(id) {
+  window.broadcastShape = function(id, recipient = null, sendAsMissionPackage = false) {
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
     const item = window.drawnShapes[id];
     const layer = item.layer;
@@ -872,9 +886,26 @@ function initCopMap() {
       payload.vertices = points.map(p => ({ lat: p.lat, lon: p.lng }));
     }
     
+    if (recipient && recipient.trim() !== '') {
+      payload.destCallsign = recipient;
+      payload.sendAsMissionPackage = sendAsMissionPackage;
+    }
+
     if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
       wsTelemetry.send(JSON.stringify(payload));
-      showCopAlert('Broadcasted to TAK Server!');
+      if (recipient) {
+        if (typeof showTacticalBanner === 'function') {
+          showTacticalBanner('📩 SENT ' + customName + ' TO ' + recipient);
+        } else {
+          showCopAlert('📩 SENT ' + customName + ' TO ' + recipient);
+        }
+      } else {
+        if (typeof showTacticalBanner === 'function') {
+          showTacticalBanner('📡 BROADCASTED ' + customName + ' TO TAK');
+        } else {
+          showCopAlert('Broadcasted to TAK Server!');
+        }
+      }
     } else {
       showCopAlert('Cannot broadcast: WebSocket disconnected.', 'error');
     }

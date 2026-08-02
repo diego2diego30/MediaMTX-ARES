@@ -9,6 +9,8 @@ const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
 const tls = require('tls');
 const AdmZip = require('adm-zip');
+const archiver = require('archiver');
+const FormData = require('form-data');
 const misb = require('@vidterra/misb.js');
 const SYNC_KEY = Buffer.from([0x06, 0x0E, 0x2B, 0x34, 0x02, 0x0B, 0x01, 0x01, 0x0E, 0x01, 0x03, 0x01, 0x01, 0x00, 0x00, 0x00]);
 
@@ -1027,6 +1029,100 @@ function startFfmpegExtraction(pathName) {
 }
 
 // ------------------------------------------------------------------
+// Mission Package Generator & Uploader
+// ------------------------------------------------------------------
+async function createAndUploadMissionPackage(cotXml, missionName, attachmentPath, attachmentName) {
+  return new Promise((resolve, reject) => {
+    try {
+      const hash = crypto.createHash('sha256').update(cotXml + Date.now().toString()).digest('hex');
+      const zipName = `${missionName.replace(/[^a-zA-Z0-9]/g, '_')}-${hash.substring(0,8)}.zip`;
+      
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      const buffers = [];
+      archive.on('data', data => buffers.push(data));
+      archive.on('error', err => reject(err));
+      archive.on('end', async () => {
+        const zipBuffer = Buffer.concat(buffers);
+        try {
+          const uploadHash = await uploadMissionPackageToTakServer(zipBuffer, zipName);
+          resolve({ hash: uploadHash, filename: zipName });
+        } catch(e) {
+          reject(e);
+        }
+      });
+      
+      const manifestXml = `
+<MissionPackageManifest version="2">
+  <Configuration>
+    <Parameter name="uid" value="${crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex')}"/>
+    <Parameter name="name" value="${missionName}"/>
+    <Parameter name="onReceiveDelete" value="false"/>
+  </Configuration>
+  <Contents>
+    <Content zipEntry="temp.cot" ignore="false"/>
+  </Contents>
+</MissionPackageManifest>`.trim();
+
+      archive.append(manifestXml, { name: 'MANIFEST/manifest.xml' });
+      archive.append(cotXml, { name: 'temp.cot' });
+      
+      if (attachmentPath && fs.existsSync(attachmentPath)) {
+        archive.append(fs.createReadStream(attachmentPath), { name: attachmentName || path.basename(attachmentPath) });
+      }
+      
+      archive.finalize();
+    } catch(err) {
+      reject(err);
+    }
+  });
+}
+
+async function uploadMissionPackageToTakServer(zipBuffer, filename) {
+  return new Promise((resolve, reject) => {
+    const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
+    const useTls = process.env.TAK_USE_TLS === 'true';
+    if (!useTls) return reject(new Error("TAK Server TLS is required for Mission Package Upload"));
+    const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
+    
+    const tlsOptions = {
+      hostname: takHost,
+      port: restPort,
+      path: '/Marti/sync/missionupload',
+      method: 'POST',
+      rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true'
+    };
+    if (process.env.TAK_CLIENT_CERT) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
+    if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
+    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
+    if (process.env.TAK_TLS_SERVERNAME) tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
+
+    const form = new FormData();
+    form.append('assetfile', zipBuffer, { filename, contentType: 'application/zip' });
+    
+    Object.assign(tlsOptions, { headers: form.getHeaders() });
+    
+    const req = https.request(tlsOptions, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const hashMatch = data.match(/Hash>([^<]+)<\/Hash/i);
+            const hash = hashMatch ? hashMatch[1] : null;
+            if (hash) resolve(hash);
+            else resolve(filename);
+          } catch(e) { resolve(filename); }
+        } else {
+          reject(new Error(`TAK REST API returned ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+    req.on('error', err => reject(err));
+    form.pipe(req);
+  });
+}
+
+// ------------------------------------------------------------------
 // TAK Server TCP CoT Ingestion
 // ------------------------------------------------------------------
 let takClient = null;
@@ -1543,7 +1639,9 @@ wss.on('connection', (ws) => {
           detailTags += `<color value="${colorVal}"/>`;
         }
         if (data.destCallsign) {
-          detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
+          if (!data.sendAsMissionPackage) {
+            detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
+          }
         }
         if (data.attachmentUrl) {
           const name = data.attachmentName || 'Attachment';
@@ -1551,9 +1649,26 @@ wss.on('connection', (ws) => {
         }
         
         const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail>${detailTags}</detail></event>`;
-        if (takClient && !takClient.destroyed) {
-          takClient.write(cotXml);
-          console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server${data.destCallsign ? ' for ' + data.destCallsign : ''}.`);
+        
+        if (data.destCallsign && data.sendAsMissionPackage) {
+          createAndUploadMissionPackage(cotXml, data.callsign || 'COP-MARKER', null, null)
+            .then(({ hash, filename }) => {
+              const msgId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex');
+              const chatUid = `GeoChat.ARES-WERX-COP.${data.destCallsign}.${msgId}`;
+              const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
+              const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
+              const dpChatXml = `<event version="2.0" uid="${chatUid}" type="b-t-f" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/><detail><__chat parent="RootContactGroup" groupOwner="false" messageId="${msgId}" chatroom="${data.destCallsign}" id="${data.destCallsign}" senderCallsign="ARES COP"><chatgrp uid0="ARES-WERX-COP" uid1="${data.destCallsign}" id="${data.destCallsign}"/></__chat><link uid="ARES-WERX-COP" type="a-f-G-U-C" relation="p-p"/><remarks source="BAO.F.ATAK.ARES-WERX-COP" to="${data.destCallsign}" time="${now.toISOString()}">Mission Package from ARES COP</remarks><fileshare name="${filename}" filename="${filename}" senderUrl="https://${takHost}:${restPort}/Marti/api/sync/metadata/${hash}/tool" sizeInBytes="0" sha256="${hash}"/></detail></event>`;
+              if (takClient && !takClient.destroyed) {
+                takClient.write(dpChatXml);
+                console.log(`[Mission Package] Marker sent via GeoChat to ${data.destCallsign}`);
+              }
+            })
+            .catch(err => console.error('[Mission Package Error]', err));
+        } else {
+          if (takClient && !takClient.destroyed) {
+            takClient.write(cotXml);
+            console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server${data.destCallsign ? ' for ' + data.destCallsign : ''}.`);
+          }
         }
         broadcast([{ uid, type: cotType, lat, lon, callsign }]);
       } else if (data.cmd === 'push_shape_cot') {
@@ -1588,7 +1703,9 @@ wss.on('connection', (ws) => {
         detailTags += `<strokeColor value="${strokeColorVal}"/><fillColor value="${fillColorVal}"/><strokeWeight value="${strokeWeightVal}"/>`;
         
         if (data.destCallsign) {
-          detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
+          if (!data.sendAsMissionPackage) {
+            detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
+          }
         }
         if (data.attachmentUrl) {
           const name = data.attachmentName || 'Attachment';
@@ -1597,9 +1714,25 @@ wss.on('connection', (ws) => {
         
         const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Drawn from ARES COP</remarks>${detailTags}</detail></event>`;
         
-        if (takClient && !takClient.destroyed) {
-          takClient.write(cotXml);
-          console.log(`[CoT PUSH] Shape ${callsign} (${uid}) sent to TAK Server${data.destCallsign ? ' for ' + data.destCallsign : ''}.`);
+        if (data.destCallsign && data.sendAsMissionPackage) {
+          createAndUploadMissionPackage(cotXml, data.callsign || 'COP-SHAPE', null, null)
+            .then(({ hash, filename }) => {
+              const msgId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(8).toString('hex');
+              const chatUid = `GeoChat.ARES-WERX-COP.${data.destCallsign}.${msgId}`;
+              const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
+              const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
+              const dpChatXml = `<event version="2.0" uid="${chatUid}" type="b-t-f" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="0" lon="0" hae="0" ce="9999999" le="9999999"/><detail><__chat parent="RootContactGroup" groupOwner="false" messageId="${msgId}" chatroom="${data.destCallsign}" id="${data.destCallsign}" senderCallsign="ARES COP"><chatgrp uid0="ARES-WERX-COP" uid1="${data.destCallsign}" id="${data.destCallsign}"/></__chat><link uid="ARES-WERX-COP" type="a-f-G-U-C" relation="p-p"/><remarks source="BAO.F.ATAK.ARES-WERX-COP" to="${data.destCallsign}" time="${now.toISOString()}">Mission Package from ARES COP</remarks><fileshare name="${filename}" filename="${filename}" senderUrl="https://${takHost}:${restPort}/Marti/api/sync/metadata/${hash}/tool" sizeInBytes="0" sha256="${hash}"/></detail></event>`;
+              if (takClient && !takClient.destroyed) {
+                takClient.write(dpChatXml);
+                console.log(`[Mission Package] Shape sent via GeoChat to ${data.destCallsign}`);
+              }
+            })
+            .catch(err => console.error('[Mission Package Error]', err));
+        } else {
+          if (takClient && !takClient.destroyed) {
+            takClient.write(cotXml);
+            console.log(`[CoT PUSH] Shape ${callsign} (${uid}) sent to TAK Server${data.destCallsign ? ' for ' + data.destCallsign : ''}.`);
+          }
         }
         // Broadcast back to clients so they know it was sent successfully
         broadcast([{ uid, type: cotType, lat, lon, callsign }]);
