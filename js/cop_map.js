@@ -1241,10 +1241,8 @@ function processPointCot(cot) {
   
   let popupHtml = buildPopup(cot.callsign, popupRows, id);
   let opts = '<option value="">-- SELECT RECIPIENT --</option>';
-  Object.values(window.trackData || {}).forEach(t => {
-    if (!t.isShape && t.type !== 'MARKER' && t.type !== 'ROUTE') {
-      opts += `<option value="${t.callsign}">${t.callsign}</option>`;
-    }
+  (window.takApiClients || []).forEach(callsign => {
+    opts += `<option value="${callsign}">${callsign}</option>`;
   });
 
   popupHtml += `
@@ -1386,10 +1384,8 @@ function processShapeCot(cot) {
 
   if (layer) {
     let opts = '<option value="">-- SELECT RECIPIENT --</option>';
-    Object.values(window.trackData || {}).forEach(t => {
-      if (!t.isShape && t.type !== 'MARKER' && t.type !== 'ROUTE') {
-        opts += `<option value="${t.callsign}">${t.callsign}</option>`;
-      }
+    (window.takApiClients || []).forEach(callsign => {
+      opts += `<option value="${callsign}">${callsign}</option>`;
     });
 
     const existingPopupHtml = layer.getPopup().getContent();
@@ -1715,6 +1711,20 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   setInterval(pollMediaMtxStreams, 3000);
   pollMediaMtxStreams();
+
+  window.takApiClients = [];
+  function pollTakClients() {
+    fetch('/api/tak/clients')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          window.takApiClients = data.filter(c => c && c.callsign).map(c => c.callsign);
+        }
+      })
+      .catch(() => {});
+  }
+  setInterval(pollTakClients, 5000);
+  pollTakClients();
 
   // TAK Objects sidebar + click-to-center
   window.panToTrack = function(id) {

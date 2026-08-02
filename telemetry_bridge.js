@@ -477,6 +477,51 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.url === '/api/tak/clients' && req.method === 'GET') {
+    const takHost = process.env.TAK_SERVER_HOST || 'host.docker.internal';
+    const useTls = process.env.TAK_USE_TLS === 'true';
+    const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
+    
+    if (!useTls) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+      return;
+    }
+    
+    const tlsOptions = {
+      hostname: takHost,
+      port: restPort,
+      path: '/Marti/api/contacts/all',
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      rejectUnauthorized: false
+    };
+    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
+    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
+    
+    const proxyReq = https.request(tlsOptions, (proxyRes) => {
+      let data = '';
+      proxyRes.on('data', c => { data += c; });
+      proxyRes.on('end', () => {
+        let clients = [];
+        try {
+          const parsed = JSON.parse(data);
+          if (Array.isArray(parsed.data)) clients = parsed.data;
+          else if (Array.isArray(parsed)) clients = parsed;
+        } catch(e) {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(clients));
+      });
+    });
+    proxyReq.on('error', (e) => {
+      console.warn('[TAK REST Error]', e.message);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+    });
+    proxyReq.end();
+    return;
+  }
+
   if (req.url.startsWith('/api/datasync/remote/content') && req.method === 'GET') {
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
     const hash = urlObj.searchParams.get('hash');
