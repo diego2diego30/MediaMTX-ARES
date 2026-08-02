@@ -252,6 +252,17 @@ window.sendMarkerToUser = function(id) {
     }));
     showTacticalBanner(`📤 SENT TO ${destCallsign}`);
   }
+window.saveLocalShape = function(id) {
+  const item = window.trackData && window.trackData[id];
+  const name = item ? (item.callsign || id) : id;
+  if (typeof showTacticalBanner === 'function') {
+    showTacticalBanner('💾 SAVED ' + name + ' TO ARES COP');
+  } else if (typeof showCopAlert === 'function') {
+    showCopAlert('💾 SAVED ' + name + ' TO ARES COP');
+  }
+  if (shapeOverlays[id] && typeof shapeOverlays[id].closePopup === 'function') {
+    shapeOverlays[id].closePopup();
+  }
 };
 
 window.sendShapeToUser = function(id) {
@@ -585,17 +596,18 @@ function initCopMap() {
             <label style="color:var(--green-bright);font-size:11px;">COLOR: <select id="edit-color-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="#00ff5e">Green</option><option value="#ff4444">Red</option><option value="#00ccff">Cyan</option><option value="#ffcc00">Yellow</option><option value="#ff00ff">Magenta</option><option value="#ffffff">White</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
-            <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+            <button onclick="window.saveCustomShape('${layer._copId}', true)" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
             <div style="margin-top:8px;">
               <div style="display:flex; gap: 4px; margin-bottom: 4px;">
                 <select id="dest-shape-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
                   <option value="">-- SELECT RECIPIENT --</option>
                   ${(window.getTakRecipients ? window.getTakRecipients() : []).map(c => '<option value="'+c+'">'+c+'</option>').join('')}
                 </select>
-                <button onclick="window.broadcastShape('${layer._copId}', document.getElementById('dest-shape-user-${layer._copId}').value, document.getElementById('dp-shape-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+                <button onclick="window.saveCustomShape('${layer._copId}', true, document.getElementById('dest-shape-user-${layer._copId}').value, document.getElementById('dp-shape-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
               </div>
               <label style="color:var(--green-bright);font-size:10px; display:flex; align-items:center; cursor:pointer;"><input type="checkbox" id="dp-shape-toggle-${layer._copId}" checked style="margin-right:4px;"> Send as Mission Package (GeoChat)</label>
             </div>
+            <button onclick="window.saveCustomShape('${layer._copId}', false)" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; margin-bottom: 8px; margin-top: 8px;">💾 SAVE TO ARES COP (LOCAL)</button>
             <button onclick="window.deleteCopMarker('${layer._copId}')" style="margin-top:8px;background:#ff4444;color:#fff;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">🗑️ DELETE SHAPE</button>
           </div>
         </div>
@@ -888,7 +900,12 @@ function initCopMap() {
   };
 
 
-  window.broadcastShape = function(id, recipient = null, sendAsMissionPackage = false) {
+  window.saveCustomShape = window.broadcastShape = function(id, doBroadcast = true, recipient = null, sendAsMissionPackage = false) {
+    if (typeof doBroadcast === 'string') {
+      sendAsMissionPackage = recipient;
+      recipient = doBroadcast;
+      doBroadcast = true;
+    }
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
     const item = window.drawnShapes[id];
     const layer = item.layer;
@@ -903,6 +920,17 @@ function initCopMap() {
     window.trackData = window.trackData || {};
     window.trackData[id] = window.trackData[id] || {};
     window.trackData[id].callsign = customName;
+    
+    layer.closePopup();
+
+    if (!doBroadcast) {
+      if (typeof showTacticalBanner === 'function') {
+        showTacticalBanner('💾 SAVED ' + customName + ' TO ARES COP');
+      } else {
+        showCopAlert('💾 SAVED ' + customName + ' TO ARES COP');
+      }
+      return;
+    }
     
     let payload = { cmd: 'push_shape_cot', uid: id, callsign: customName };
     
@@ -1588,6 +1616,7 @@ function processShapeCot(cot) {
       <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
         <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
         <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📎 ATTACH FILE</button>
+        <button onclick="window.saveLocalShape('${id}')" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">💾 SAVE TO ARES COP (LOCAL)</button>
         <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
         <button onclick="window.sendShapeToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
       </div>
@@ -1621,7 +1650,20 @@ function processRouteCot(cot) {
   });
 
   const label = cot.callsign || 'ROUTE';
-  group.bindPopup(buildPopup(label, [['TYPE', 'Route'], ['WAYPOINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+  let opts = '<option value="">-- SELECT RECIPIENT --</option>';
+  (window.getTakRecipients ? window.getTakRecipients() : []).forEach(callsign => {
+    opts += `<option value="${callsign}">${callsign}</option>`;
+  });
+  const routePopupHtml = buildPopup(label, [['TYPE', 'Route'], ['WAYPOINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]) + `
+    <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+      <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
+      <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📎 ATTACH FILE</button>
+      <button onclick="window.saveLocalShape('${id}')" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">💾 SAVE TO ARES COP (LOCAL)</button>
+      <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
+      <button onclick="window.sendShapeToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
+    </div>
+  `;
+  group.bindPopup(routePopupHtml);
   group.addTo(copMap);
   shapeOverlays[id] = group;
   window.trackData[id] = { id, callsign: label, lat: cot.lat, lon: cot.lon, type: 'ROUTE', stale: cot.stale, isShape: true };
