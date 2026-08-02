@@ -657,6 +657,66 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.url === '/api/chat_upload' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        if (!payload.filename || !payload.data) {
+          res.writeHead(400); res.end(JSON.stringify({ error: 'Missing filename or data' }));
+          return;
+        }
+        
+        const attachDir = path.join(userZipsDir, 'chat-attachments');
+        if (!fs.existsSync(attachDir)) fs.mkdirSync(attachDir, { recursive: true });
+        
+        const fileId = crypto.randomUUID ? crypto.randomUUID().substring(0,8) : Date.now().toString();
+        const safeFilename = payload.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const finalFilename = `${fileId}-${safeFilename}`;
+        const filePath = path.join(attachDir, finalFilename);
+        
+        // Data format: "data:image/png;base64,iVBORw0KGgo..."
+        const base64Data = payload.data.replace(/^data:([A-Za-z-+/]+);base64,/, '');
+        fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+        
+        const host = req.headers.host || 'localhost';
+        const protocol = req.socket.encrypted ? 'https' : 'http';
+        const publicUrl = `${protocol}://${host}/chat-attachments/${finalFilename}`;
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, url: publicUrl }));
+      } catch (e) {
+        console.error('[Chat Upload Error]', e);
+        res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.url.startsWith('/chat-attachments/') && req.method === 'GET') {
+    const filename = path.basename(req.url);
+    const attachDir = path.join(userZipsDir, 'chat-attachments');
+    const filepath = path.join(attachDir, filename);
+    if (fs.existsSync(filepath)) {
+      const ext = path.extname(filename).toLowerCase();
+      let mime = 'application/octet-stream';
+      if (ext === '.png') mime = 'image/png';
+      else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+      else if (ext === '.gif') mime = 'image/gif';
+      else if (ext === '.txt') mime = 'text/plain';
+      else if (ext === '.pdf') mime = 'application/pdf';
+      
+      const stats = fs.statSync(filepath);
+      res.writeHead(200, { 'Content-Type': mime, 'Content-Length': stats.size });
+      const readStream = fs.createReadStream(filepath);
+      readStream.pipe(res);
+    } else {
+      res.writeHead(404); res.end('Not found');
+    }
+    return;
+  }
+
   if (req.url.startsWith('/user-zips/') && req.method === 'GET') {
     const filename = path.basename(req.url);
     const filepath = path.join(userZipsDir, filename);

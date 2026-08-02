@@ -1542,6 +1542,41 @@ function initChat() {
 
   sendBtn.addEventListener('click', sendChatMessage);
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } });
+
+  const attachBtn = document.getElementById('chat-attach-btn');
+  const fileInput = document.getElementById('chat-file-input');
+  if (attachBtn && fileInput) {
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      attachBtn.textContent = '⏳';
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        fetch('/api/chat_upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, data: e.target.result })
+        })
+        .then(r => r.json())
+        .then(data => {
+          attachBtn.textContent = '📎';
+          if (data.url) {
+            input.value = `[Attachment: ${file.name}] \n${data.url}`;
+            sendChatMessage();
+          } else {
+            showTacticalBanner('⚠️ UPLOAD FAILED');
+          }
+        })
+        .catch(err => {
+          attachBtn.textContent = '📎';
+          showTacticalBanner('⚠️ UPLOAD ERROR');
+        });
+        fileInput.value = '';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
 }
 
 window.deleteCopMarker = function(id) {
@@ -1595,7 +1630,17 @@ function renderChatLog(selectedView) {
     const ts = timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     const div = document.createElement('div');
     div.className = 'chat-message' + (isSelf ? ' chat-self' : '');
-    div.innerHTML = `<span class="chat-sender">${sender}</span><span class="chat-time">${ts}</span><div class="chat-text">${escapeHtml(message)}</div>`;
+    
+    let displayMsg = escapeHtml(message);
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    displayMsg = displayMsg.replace(urlRegex, function(url) {
+      if (url.match(/\.(jpeg|jpg|gif|png)$/i) != null) {
+        return `<br><a href="${url}" target="_blank"><img src="${url}" style="max-width:100%; border-radius:4px; margin-top:4px; border:1px solid var(--green-dim);" /></a>`;
+      }
+      return `<a href="${url}" target="_blank" style="color:var(--green-bright); text-decoration:underline; word-break:break-all;">${url}</a>`;
+    });
+
+    div.innerHTML = `<span class="chat-sender">${sender}</span><span class="chat-time">${ts}</span><div class="chat-text">${displayMsg}</div>`;
     log.appendChild(div);
   });
   log.scrollTop = log.scrollHeight;
