@@ -117,7 +117,44 @@ body, html {
   background-color: var(--green-dark) !important;
 }
 
-/* Dark mode for Leaflet Draw */
+/* Dark mode for Leaflet Layer Control & Draw Toolbar */
+.leaflet-control-layers {
+  background: rgba(4, 14, 6, 0.92) !important;
+  border: 1px solid var(--green-mid) !important;
+  color: var(--green-bright) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  border-radius: 4px !important;
+  box-shadow: 0 0 15px rgba(0, 255, 94, 0.2);
+}
+.leaflet-control-layers-expanded {
+  padding: 8px 12px !important;
+}
+.leaflet-control-layers label {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.leaflet-control-layers label:last-child {
+  margin-bottom: 0;
+}
+.leaflet-control-layers input[type="radio"],
+.leaflet-control-layers input[type="checkbox"] {
+  accent-color: var(--green-bright);
+  margin-right: 8px;
+  cursor: pointer;
+}
+.leaflet-control-layers-toggle {
+  background-color: rgba(0, 20, 0, 0.8) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 4px !important;
+  filter: invert(0.9) sepia(0.2) hue-rotate(80deg) saturate(2) brightness(1.2);
+}
+.leaflet-control-layers-toggle:hover {
+  background-color: var(--green-dark) !important;
+}
+
 .leaflet-draw-toolbar {
   filter: invert(0.9) sepia(0.2) hue-rotate(80deg) saturate(2) brightness(1.2);
 }
