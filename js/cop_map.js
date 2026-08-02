@@ -508,7 +508,7 @@ function initCopMap() {
             <button onclick="window.saveCustomMarker('${layer._copId}', true, document.getElementById('dest-new-user-${layer._copId}').value)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
           </div>
           
-          <button onclick="window.saveCustomMarker('${layer._copId}', false)" style="background:#111;color:var(--grey-mid);border:1px solid var(--grey-mid);padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; margin-bottom: 8px;">💾 SAVE TO ARES COP (LOCAL)</button>
+          <button onclick="window.saveCustomMarker('${layer._copId}', false)" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; margin-bottom: 8px;">💾 SAVE TO ARES COP (LOCAL)</button>
 
           <button onclick="window.deleteCopMarker('${layer._copId}')" style="background:#ff4444;color:#fff;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px;">🗑️ DELETE MARKER</button>
         </div>
