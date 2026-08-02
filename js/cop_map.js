@@ -252,17 +252,6 @@ window.sendMarkerToUser = function(id) {
     }));
     showTacticalBanner(`📤 SENT TO ${destCallsign}`);
   }
-window.saveLocalShape = function(id) {
-  const item = window.trackData && window.trackData[id];
-  const name = item ? (item.callsign || id) : id;
-  if (typeof showTacticalBanner === 'function') {
-    showTacticalBanner('💾 SAVED ' + name + ' TO ARES COP');
-  } else if (typeof showCopAlert === 'function') {
-    showCopAlert('💾 SAVED ' + name + ' TO ARES COP');
-  }
-  if (shapeOverlays[id] && typeof shapeOverlays[id].closePopup === 'function') {
-    shapeOverlays[id].closePopup();
-  }
 };
 
 window.sendShapeToUser = function(id) {
@@ -384,50 +373,6 @@ window.updateShapeStyle = function(id) {
 function initCopMap() {
   copMap = L.map('cop-map-container', { zoomControl: false }).setView([38.9784, -76.4922], 13);
   L.control.zoom({ position: 'bottomleft' }).addTo(copMap);
-
-  // Limit two-finger trackpad swipe zoom to max 3 levels per gesture (in or out) without affecting pinch zoom
-  (function setupTrackpadSwipeZoomLimit(map) {
-    const container = map.getContainer();
-    let gestureStartZoom = null;
-    let accumulatedDeltaY = 0;
-    let gestureResetTimer = null;
-
-    container.addEventListener('wheel', function(e) {
-      // Do not alter trackpad pinch-to-zoom (which sends wheel events with ctrlKey = true on macOS)
-      if (e.ctrlKey) {
-        return;
-      }
-
-      e.preventDefault();
-      e.stopImmediatePropagation();
-
-      const currentZoom = map.getZoom();
-
-      if (gestureStartZoom === null) {
-        gestureStartZoom = currentZoom;
-        accumulatedDeltaY = 0;
-      }
-
-      clearTimeout(gestureResetTimer);
-      gestureResetTimer = setTimeout(() => {
-        gestureStartZoom = null;
-        accumulatedDeltaY = 0;
-      }, 250);
-
-      accumulatedDeltaY += e.deltaY;
-
-      const deltaLevels = Math.round(-accumulatedDeltaY / 120);
-      const minAllowed = Math.max(map.getMinZoom(), gestureStartZoom - 3);
-      const maxAllowed = Math.min(map.getMaxZoom(), gestureStartZoom + 3);
-
-      const targetZoom = Math.min(maxAllowed, Math.max(minAllowed, gestureStartZoom + deltaLevels));
-
-      if (targetZoom !== currentZoom) {
-        const mouseLatLng = map.mouseEventToLatLng(e);
-        map.setZoomAround(mouseLatLng, targetZoom, { animate: true });
-      }
-    }, { capture: true, passive: false });
-  })(copMap);
 
   // Base layers
   const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -596,18 +541,17 @@ function initCopMap() {
             <label style="color:var(--green-bright);font-size:11px;">COLOR: <select id="edit-color-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="#00ff5e">Green</option><option value="#ff4444">Red</option><option value="#00ccff">Cyan</option><option value="#ffcc00">Yellow</option><option value="#ff00ff">Magenta</option><option value="#ffffff">White</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
-            <button onclick="window.saveCustomShape('${layer._copId}', true)" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+            <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
             <div style="margin-top:8px;">
               <div style="display:flex; gap: 4px; margin-bottom: 4px;">
                 <select id="dest-shape-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
                   <option value="">-- SELECT RECIPIENT --</option>
                   ${(window.getTakRecipients ? window.getTakRecipients() : []).map(c => '<option value="'+c+'">'+c+'</option>').join('')}
                 </select>
-                <button onclick="window.saveCustomShape('${layer._copId}', true, document.getElementById('dest-shape-user-${layer._copId}').value, document.getElementById('dp-shape-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+                <button onclick="window.broadcastShape('${layer._copId}', document.getElementById('dest-shape-user-${layer._copId}').value, document.getElementById('dp-shape-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
               </div>
               <label style="color:var(--green-bright);font-size:10px; display:flex; align-items:center; cursor:pointer;"><input type="checkbox" id="dp-shape-toggle-${layer._copId}" checked style="margin-right:4px;"> Send as Mission Package (GeoChat)</label>
             </div>
-            <button onclick="window.saveCustomShape('${layer._copId}', false)" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; margin-bottom: 8px; margin-top: 8px;">💾 SAVE TO ARES COP (LOCAL)</button>
             <button onclick="window.deleteCopMarker('${layer._copId}')" style="margin-top:8px;background:#ff4444;color:#fff;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">🗑️ DELETE SHAPE</button>
           </div>
         </div>
@@ -838,23 +782,21 @@ function initCopMap() {
   window.updateMarkerPreview = function(id) {
     const previewContainer = document.getElementById(`icon-live-preview-${id}`);
     const typeInput = document.getElementById(`edit-marker-type-${id}`);
-    const nameInput = document.getElementById(`edit-marker-name-${id}`);
     if (!previewContainer || !typeInput) return;
 
-    let cotType = typeInput.value;
-    const name = nameInput ? nameInput.value : '';
+    let baseType = typeInput.value;
+    let resolvedType = baseType;
 
-    // If it's a template type with '?', replace with current affiliation
-    if (cotType.startsWith('a-?-')) {
+    // If it's a template type with '?', replace with current affiliation for rendering, but DO NOT overwrite the input value
+    if (baseType.startsWith('a-?-')) {
       const affil = window._markerStates[id] ? window._markerStates[id].affiliation : 'u';
-      cotType = cotType.replace('a-?-', `a-${affil}-`);
-      typeInput.value = cotType;
+      resolvedType = baseType.replace('a-?-', `a-${affil}-`);
     }
 
     // Find custom emoji config if exists
     let customEmojiConfig = null;
     for (const cat of Object.values(ICON_CATALOG)) {
-      const match = cat.find(i => i.type.replace('a-?-', `a-${window._markerStates[id]?.affiliation || 'u'}-`) === cotType || i.type === cotType);
+      const match = cat.find(i => i.type.replace('a-?-', `a-${window._markerStates[id]?.affiliation || 'u'}-`) === resolvedType || i.type === resolvedType);
       if (match && match.customEmoji) {
         customEmojiConfig = match;
         break;
@@ -864,8 +806,8 @@ function initCopMap() {
     let iconHtml = '';
     if (customEmojiConfig) {
        iconHtml = `<div style="background:${customEmojiConfig.color};color:#fff;border:1px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow: 0 0 8px ${customEmojiConfig.color};">${customEmojiConfig.customEmoji}</div>`;
-    } else if (typeof cotToSidc === 'function' && cotType.startsWith('a-')) {
-      const sidc = cotToSidc(cotType);
+    } else if (typeof cotToSidc === 'function' && resolvedType.startsWith('a-')) {
+      const sidc = cotToSidc(resolvedType);
       if (sidc) {
         const sym = new ms.Symbol(sidc, { size: 25 });
         iconHtml = sym.asSVG();
@@ -882,30 +824,15 @@ function initCopMap() {
     if (titleEl) {
       let typeLabel = 'TACTICAL MARKER';
       for (const cat of Object.values(ICON_CATALOG)) {
-        const match = cat.find(i => i.type.replace('a-?-', `a-${window._markerStates[id]?.affiliation || 'u'}-`) === cotType || i.type === cotType);
+        const match = cat.find(i => i.type.replace('a-?-', `a-${window._markerStates[id]?.affiliation || 'u'}-`) === resolvedType || i.type === resolvedType);
         if (match) { typeLabel = match.label; break; }
       }
       titleEl.textContent = `MARKER: ${typeLabel.toUpperCase()}`;
     }
-
-    // Update actual marker layer icon on the map
-    if (window.drawnShapes && window.drawnShapes[id] && window.drawnShapes[id].layer) {
-      window.drawnShapes[id].layer.setIcon(L.divIcon({
-        className: 'custom-tak-icon',
-        html: iconHtml,
-        iconSize: [30, 30],
-        iconAnchor: [15, 15]
-      }));
-    }
   };
 
 
-  window.saveCustomShape = window.broadcastShape = function(id, doBroadcast = true, recipient = null, sendAsMissionPackage = false) {
-    if (typeof doBroadcast === 'string') {
-      sendAsMissionPackage = recipient;
-      recipient = doBroadcast;
-      doBroadcast = true;
-    }
+  window.broadcastShape = function(id, recipient = null, sendAsMissionPackage = false) {
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
     const item = window.drawnShapes[id];
     const layer = item.layer;
@@ -920,17 +847,6 @@ function initCopMap() {
     window.trackData = window.trackData || {};
     window.trackData[id] = window.trackData[id] || {};
     window.trackData[id].callsign = customName;
-    
-    layer.closePopup();
-
-    if (!doBroadcast) {
-      if (typeof showTacticalBanner === 'function') {
-        showTacticalBanner('💾 SAVED ' + customName + ' TO ARES COP');
-      } else {
-        showCopAlert('💾 SAVED ' + customName + ' TO ARES COP');
-      }
-      return;
-    }
     
     let payload = { cmd: 'push_shape_cot', uid: id, callsign: customName };
     
@@ -1616,7 +1532,6 @@ function processShapeCot(cot) {
       <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
         <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
         <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📎 ATTACH FILE</button>
-        <button onclick="window.saveLocalShape('${id}')" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">💾 SAVE TO ARES COP (LOCAL)</button>
         <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
         <button onclick="window.sendShapeToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
       </div>
@@ -1650,20 +1565,7 @@ function processRouteCot(cot) {
   });
 
   const label = cot.callsign || 'ROUTE';
-  let opts = '<option value="">-- SELECT RECIPIENT --</option>';
-  (window.getTakRecipients ? window.getTakRecipients() : []).forEach(callsign => {
-    opts += `<option value="${callsign}">${callsign}</option>`;
-  });
-  const routePopupHtml = buildPopup(label, [['TYPE', 'Route'], ['WAYPOINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]) + `
-    <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
-      <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
-      <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📎 ATTACH FILE</button>
-      <button onclick="window.saveLocalShape('${id}')" style="background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">💾 SAVE TO ARES COP (LOCAL)</button>
-      <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
-      <button onclick="window.sendShapeToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
-    </div>
-  `;
-  group.bindPopup(routePopupHtml);
+  group.bindPopup(buildPopup(label, [['TYPE', 'Route'], ['WAYPOINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
   group.addTo(copMap);
   shapeOverlays[id] = group;
   window.trackData[id] = { id, callsign: label, lat: cot.lat, lon: cot.lon, type: 'ROUTE', stale: cot.stale, isShape: true };
