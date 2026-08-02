@@ -521,10 +521,15 @@ function initCopMap() {
       window._markerStates = window._markerStates || {};
       window._markerStates[layer._copId] = { affiliation: 'u', category: 'ground' };
       
-      layer.bindPopup(popupContent, { maxWidth: 400 });
+      layer.bindPopup(popupContent, { maxWidth: 400, autoPanPaddingTopLeft: [10, 70] });
       layer.on('popupopen', () => {
         window.renderIconGrid(layer._copId);
         window.updateMarkerPreview(layer._copId);
+        setTimeout(() => {
+          if (layer.getPopup()) {
+            layer.getPopup().update();
+          }
+        }, 50);
       });
       layer.openPopup();
     } else {
