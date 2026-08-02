@@ -342,6 +342,7 @@ function initCopMap() {
           </div>
 
           <button onclick="window.broadcastCustomMarker('${layer._copId}')" style="background:var(--green-bright);color:#000;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,94,0.3);">📡 BROADCAST TO TAK</button>
+          <button onclick="window.deleteCopMarker('${layer._copId}')" style="background:#ff4444;color:#fff;border:none;padding:8px;margin-top:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px;">🗑️ DELETE MARKER</button>
         </div>
       `;
       layer.bindPopup(popupContent, { maxWidth: 400 }).openPopup();
@@ -365,6 +366,7 @@ function initCopMap() {
             <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
             <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+            <button onclick="window.deleteCopMarker('${layer._copId}')" style="margin-top:8px;background:#ff4444;color:#fff;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">🗑️ DELETE SHAPE</button>
           </div>
         </div>
       `;
@@ -602,6 +604,16 @@ function initCopMap() {
     }
 
     previewContainer.innerHTML = iconHtml;
+
+    // Update actual marker layer icon on the map
+    if (window.drawnShapes && window.drawnShapes[id] && window.drawnShapes[id].layer) {
+      window.drawnShapes[id].layer.setIcon(L.divIcon({
+        className: 'custom-tak-icon',
+        html: iconHtml,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+      }));
+    }
   };
 
 
@@ -1360,6 +1372,9 @@ window.deleteCopMarker = function(id) {
   }
   removeFovOverlay(id);
   if (window.drawnShapes && window.drawnShapes[id]) {
+    if (window.drawnShapes[id].layer) {
+      copMap.removeLayer(window.drawnShapes[id].layer);
+    }
     delete window.drawnShapes[id];
   }
   if (window.trackData) delete window.trackData[id];
