@@ -1835,9 +1835,13 @@ function renderChatLog(selectedView) {
     
     let displayMsg = escapeHtml(message);
     const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const mediaStyle = 'max-width:100%; border-radius:4px; margin-top:4px; border:1px solid var(--green-dim);';
     displayMsg = displayMsg.replace(urlRegex, function(url) {
-      if (url.match(/\.(jpeg|jpg|gif|png)$/i) != null) {
-        return `<br><a href="${url}" target="_blank"><img src="${url}" style="max-width:100%; border-radius:4px; margin-top:4px; border:1px solid var(--green-dim);" /></a>`;
+      if (url.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)$/i) != null) {
+        return `<br><a href="${url}" target="_blank"><img src="${url}" style="${mediaStyle}" /></a>`;
+      }
+      if (url.match(/\.(mp4|webm|mov|m4v|ogg|ogv)$/i) != null) {
+        return `<br><video src="${url}" controls preload="metadata" style="${mediaStyle}"></video>`;
       }
       return `<a href="${url}" target="_blank" style="color:var(--green-bright); text-decoration:underline; word-break:break-all;">${url}</a>`;
     });

@@ -683,7 +683,7 @@ const httpServer = http.createServer((req, res) => {
         fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
         
         const host = req.headers.host || 'localhost';
-        const protocol = req.socket.encrypted ? 'https' : 'http';
+        const protocol = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
         const publicUrl = `${protocol}://${host}/chat-attachments/${finalFilename}`;
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
