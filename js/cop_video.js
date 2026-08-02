@@ -73,7 +73,7 @@ function openPip(title, path) {
   if (IS_PROXIED) {
     // Requires NGINX to proxy /webrtc/ to 8889 (or serve the WebRTC index on the same path if configured in mediamtx.yml)
     // We'll point directly to the stream path which MediaMTX handles if webRTC is true.
-    webrtcUrl = `/${path}/`; 
+    webrtcUrl = `/webrtc/${path}/`; 
   } else {
     webrtcUrl = `${proto}//${host}:${webrtcPort}/${path}/`;
   }

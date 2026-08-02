@@ -1288,12 +1288,11 @@ function broadcastVideoAliasCots() {
             console.log(`[VideoCoT] Pushed map marker and feed for ${callsign} to TAK Server`);
           }
 
-          // ── Also cache + broadcast to local ARES COP WebSocket clients ──
+          // ── Only cache it. Do NOT broadcast to ARES COP WebSockets, ARES COP renders the drone directly from KLV ──
           const cotObj = { uid, type: 'b-i-v', lat, lon, callsign, videoUrl: rtspUrl,
             sensor: { azimuth: 0, fov: 60, range: 500 },
             stale: stale.toISOString() };
           cotCache.set(uid, cotObj);
-          broadcast([cotObj]);
         });
       } catch(e) { console.error('VideoAlias CoT error:', e); }
     });
