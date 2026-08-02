@@ -1172,6 +1172,11 @@ function processPointCot(cot) {
     ['LAT',  cot.lat.toFixed(5)],
     ['LON',  cot.lon.toFixed(5)]
   ];
+  if (cot.sensor) {
+    if (cot.sensor.azimuth != null) popupRows.push(['AZ', `${cot.sensor.azimuth}°`]);
+    if (cot.sensor.fov != null) popupRows.push(['FOV', `${cot.sensor.fov}°`]);
+    if (cot.sensor.range != null) popupRows.push(['RANGE', `${cot.sensor.range} m`]);
+  }
   if (cot.remarks) popupRows.push(['NOTE', cot.remarks]);
   if (cot.imageUrl) {
     popupRows.push(['PHOTO', `<a href="${cot.imageUrl}" target="_blank"><img src="${cot.imageUrl}" style="max-width:180px;max-height:120px;border:1px solid var(--green-bright);border-radius:4px;margin-top:4px;display:block;" /></a>`]);
