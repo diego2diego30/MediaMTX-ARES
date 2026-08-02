@@ -11,9 +11,12 @@
   "license": "ISC",
   "dependencies": {
     "@vidterra/misb.js": "^0.1.30",
+    "acorn": "^8.18.0",
+    "acorn-loose": "^8.5.2",
     "adm-zip": "^0.5.16",
     "archiver": "^8.0.0",
     "form-data": "^4.0.6",
+    "prettier": "^3.9.6",
     "sqlite3": "^6.0.1",
     "ws": "^8.21.1"
   }

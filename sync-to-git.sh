@@ -16,7 +16,7 @@ echo " 🚀 Syncing ARES-WERX to GitHub & Auto-Deploying to Live VPS"
 echo "=================================================================="
 
 # Ensure Git repository exists
-if [ ! -d ".git" ]; then
+if [ ! -e ".git" ]; then
     echo "Initializing Git repository..."
     git init
     git branch -M main
