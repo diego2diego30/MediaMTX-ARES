@@ -180,6 +180,18 @@ function shapeStyle(cot) {
   return { color: stroke, fillColor: fill, fillOpacity: 0.35, weight, opacity: 0.85, className: 'tak-shape' };
 }
 
+// hexToArgbInt on the server only understands "#rrggbb" — normalize the rgba(...) strings
+// argbToCss can produce (from a TAK-set strokeColor) before they end up in customStyle/payload.color,
+// otherwise re-broadcasting a shape whose color came from another client sends a garbage color.
+function cssColorToHex(c) {
+  if (!c) return '#00ff5e';
+  if (c.startsWith('#')) return c;
+  const m = c.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (!m) return '#00ff5e';
+  const toHex = n => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+  return '#' + toHex(m[1]) + toHex(m[2]) + toHex(m[3]);
+}
+
 // ── Popup builder ──────────────────────────────────────────────────
 function buildPopup(title, rows, markerId) {
   const inner = rows.map(([k, v]) => `<strong style="color:#fff">${k}:</strong> ${v}`).join('<br>');
@@ -196,6 +208,53 @@ function buildPopup(title, rows, markerId) {
     <strong style="color:var(--green-bright);font-size:13px;text-shadow:0 0 5px var(--green-bright)">${title}</strong><br>${inner}
     ${lockBtn}
   </div>`;
+}
+
+// ── Shape/Route action panel ────────────────────────────────────────
+// Appended to any existing shape/route popup (circle, rectangle, polygon,
+// line, route) to give it the same visual-property editing, attachment,
+// broadcast/send, and delete controls that markers and freshly-drawn
+// shapes already have. Relies on window.drawnShapes[id] being populated
+// with {layer, type, shapeType, vertices|radius} by the caller so that
+// window.updateShapeStyle / attachFileToTrack / broadcastShape (all
+// pre-existing, shared with the draw-tool creation flow) work unchanged.
+function shapeStyleSelectHtml(id, currentStyle) {
+  const colorOpts = [['#00ff5e', 'Green'], ['#ff4444', 'Red'], ['#00ccff', 'Cyan'], ['#ffcc00', 'Yellow'], ['#ff00ff', 'Magenta'], ['#ffffff', 'White']];
+  const opacityOpts = [['0.35', '35% (TAK Std)'], ['0.15', '15%'], ['0.60', '60%'], ['0.85', '85%']];
+  const weightOpts = [['2.5', '2.5px'], ['4', '4px'], ['6', '6px'], ['1', '1px']];
+  const mk = (opts, current) => opts.map(([v, l]) => `<option value="${v}"${String(v) === String(current) ? ' selected' : ''}>${l}</option>`).join('');
+  return `
+    <label style="color:var(--green-bright);font-size:11px;">COLOR: <select id="edit-color-${id}" onchange="window.updateShapeStyle('${id}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;">${mk(colorOpts, currentStyle.color)}</select></label><br>
+    <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${id}" onchange="window.updateShapeStyle('${id}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;">${mk(opacityOpts, currentStyle.fillOpacity)}</select></label><br>
+    <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${id}" onchange="window.updateShapeStyle('${id}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;">${mk(weightOpts, currentStyle.weight)}</select></label>
+  `;
+}
+
+function buildShapeEditorControls(id, currentStyle, deleteLabel) {
+  const callsign = (window.trackData && window.trackData[id] && window.trackData[id].callsign) || id;
+  const recipientOpts = (window.getTakRecipients ? window.getTakRecipients() : []).map(c => `<option value="${c}">${c}</option>`).join('');
+  return `
+    <div style="margin-top:8px;border-top:1px solid var(--green-dim);padding-top:8px;">
+      <input type="hidden" id="edit-name-${id}" value="${escapeHtml(callsign)}">
+      ${shapeStyleSelectHtml(id, currentStyle)}
+      <div style="margin-top:8px;">
+        <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
+        <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:6px 8px;width:100%;font-weight:bold;cursor:pointer;font-size:11px;">📎 ATTACH FILE</button>
+        <div id="attach-status-${id}" style="font-size:10px;color:var(--green-dim);margin-top:2px;"></div>
+      </div>
+      <button onclick="window.broadcastShape('${id}', true)" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 RE-BROADCAST TO TAK</button>
+      <div style="margin-top:8px;">
+        <div style="display:flex; gap: 4px; margin-bottom: 4px;">
+          <select id="dest-shape-user-${id}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
+            <option value="">-- SELECT RECIPIENT --</option>${recipientOpts}
+          </select>
+          <button onclick="window.broadcastShape('${id}', true, document.getElementById('dest-shape-user-${id}').value, document.getElementById('dp-shape-toggle-${id}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+        </div>
+        <label style="color:var(--green-bright);font-size:10px; display:flex; align-items:center; cursor:pointer;"><input type="checkbox" id="dp-shape-toggle-${id}" checked style="margin-right:4px;"> Send as Mission Package (GeoChat)</label>
+      </div>
+      <button onclick="window.deleteCopMarker('${id}')" style="margin-top:8px;background:#ff4444;color:#fff;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">🗑️ DELETE ${(deleteLabel || 'SHAPE').toUpperCase()}</button>
+    </div>
+  `;
 }
 
 // ── Tactical Banner Notification ───────────────────────────────────
@@ -254,39 +313,6 @@ window.sendMarkerToUser = function(id) {
   }
 };
 
-window.sendShapeToUser = function(id) {
-  const td = window.trackData[id];
-  const destSelect = document.getElementById(`dest-user-${id}`);
-  if (!td || !destSelect || !destSelect.value) return;
-  const destCallsign = destSelect.value;
-  
-  // Re-push the same shape data but with destCallsign attached
-  // We need the original shape parameters from window.drawnShapes
-  const shapeInfo = window.drawnShapes && window.drawnShapes[id];
-  if (!shapeInfo) return;
-  
-  if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
-    const payload = {
-      cmd: 'push_shape_cot',
-      uid: id,
-      callsign: td.callsign || id,
-      lat: td.lat,
-      lon: td.lon,
-      shapeType: shapeInfo.shapeType,
-      destCallsign: destCallsign
-    };
-    if (shapeInfo.radius) payload.radius = shapeInfo.radius;
-    if (shapeInfo.vertices) payload.vertices = shapeInfo.vertices;
-    if (shapeInfo.layer && shapeInfo.layer.options) {
-      payload.color = shapeInfo.layer.options.color;
-      payload.opacity = shapeInfo.layer.options.fillOpacity;
-      payload.weight = shapeInfo.layer.options.weight;
-    }
-    wsTelemetry.send(JSON.stringify(payload));
-    showTacticalBanner(`📤 SENT TO ${destCallsign}`);
-  }
-};
-
 window.attachFileToTrack = function(id) {
   const fileInput = document.getElementById(`attach-file-${id}`);
   if (!fileInput) return;
@@ -331,6 +357,9 @@ window.attachFileToTrack = function(id) {
                 payload.color = shapeInfo.layer.options.color; payload.opacity = shapeInfo.layer.options.fillOpacity; payload.weight = shapeInfo.layer.options.weight;
               }
               wsTelemetry.send(JSON.stringify(payload));
+              shapeInfo.attachmentUrl = data.url;
+              shapeInfo.attachmentName = file.name;
+              renderAttachStatus(document.getElementById(`attach-status-${id}`), file.name, data.url);
             } else {
               wsTelemetry.send(JSON.stringify({ 
                 cmd: 'push_marker_cot', uid: id, callsign: td.callsign || id, lat: td.lat, lon: td.lon,
@@ -1028,7 +1057,7 @@ function initCopMap() {
     const td = window.trackData && window.trackData[id];
     if (td && td.customStyle) {
       payload.color = td.customStyle.color;
-      payload.fillOpacity = td.customStyle.opacity;
+      payload.opacity = td.customStyle.opacity;
       payload.weight = td.customStyle.weight;
     }
     
@@ -1674,59 +1703,67 @@ function processShapeCot(cot) {
   if (shapeOverlays[id]) { copMap.removeLayer(shapeOverlays[id]); delete shapeOverlays[id]; }
 
   const style = shapeStyle(cot);
+  style.color = cssColorToHex(style.color); // keep it re-broadcastable — see cssColorToHex
   const label = cot.callsign || cot.remarks || id;
   let layer = null;
   let trackType = 'SHAPE';
+  let shapeKind = null; // draw-tool type string shared with broadcastShape/attachFileToTrack: circle/rectangle/polygon/polyline
+  let shapeVertices = null;
+  let shapeRadius = null;
 
   if (cot.type === 'u-d-c' && cot.ellipse) {
     // Circle — ellipse.major = radius in meters
     layer = L.circle([cot.lat, cot.lon], { ...style, radius: cot.ellipse.major });
-    trackType = 'CIRCLE';
+    trackType = 'CIRCLE'; shapeKind = 'circle'; shapeRadius = cot.ellipse.major;
     layer.bindPopup(buildPopup(label, [['TYPE', 'Circle'], ['RADIUS', `${cot.ellipse.major.toFixed(0)} m`], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
   } else if (cot.type === 'u-d-r' && cot.vertices && cot.vertices.length >= 3) {
     layer = L.polygon(cot.vertices.map(v => [v.lat, v.lon]), style);
-    trackType = 'RECTANGLE';
+    trackType = 'RECTANGLE'; shapeKind = 'rectangle'; shapeVertices = cot.vertices.map(v => ({ lat: v.lat, lon: v.lon }));
     layer.bindPopup(buildPopup(label, [['TYPE', 'Rectangle'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
   } else if (cot.type === 'u-d-r' && cot.ellipse) {
     // Rectangle — compute corners from center + half-dimensions + bearing
     const corners = rectCorners(cot.lat, cot.lon, cot.ellipse.major, cot.ellipse.minor, cot.ellipse.angle);
     layer = L.polygon(corners, style);
-    trackType = 'RECTANGLE';
+    trackType = 'RECTANGLE'; shapeKind = 'rectangle'; shapeVertices = corners.map(c => ({ lat: c[0], lon: c[1] }));
     layer.bindPopup(buildPopup(label, [['TYPE', 'Rectangle'], ['LENGTH', `${cot.ellipse.major.toFixed(0)} m`], ['WIDTH', `${cot.ellipse.minor.toFixed(0)} m`], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
   } else if (cot.type === 'u-d-p' && cot.vertices && cot.vertices.length >= 3) {
     layer = L.polygon(cot.vertices.map(v => [v.lat, v.lon]), style);
-    trackType = 'POLYGON';
+    trackType = 'POLYGON'; shapeKind = 'polygon'; shapeVertices = cot.vertices.map(v => ({ lat: v.lat, lon: v.lon }));
     layer.bindPopup(buildPopup(label, [['TYPE', 'Polygon'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
 
   } else if (cot.type === 'u-d-f' && cot.vertices && cot.vertices.length >= 2) {
     layer = L.polyline(cot.vertices.map(v => [v.lat, v.lon]), style);
-    trackType = 'LINE';
+    trackType = 'LINE'; shapeKind = 'polyline'; shapeVertices = cot.vertices.map(v => ({ lat: v.lat, lon: v.lon }));
     layer.bindPopup(buildPopup(label, [['TYPE', 'Line'], ['POINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
   }
 
   if (layer) {
-    let opts = '<option value="">-- SELECT RECIPIENT --</option>';
-    (window.getTakRecipients ? window.getTakRecipients() : []).forEach(callsign => {
-      opts += `<option value="${callsign}">${callsign}</option>`;
-    });
+    window.drawnShapes = window.drawnShapes || {};
+    window.drawnShapes[id] = {
+      layer, type: shapeKind, shapeType: shapeKind,
+      radius: shapeRadius, vertices: shapeVertices,
+      attachmentUrl: cot.attachmentUrl, attachmentName: cot.attachmentName
+    };
+    window.trackData[id] = {
+      id, callsign: label, lat: cot.lat, lon: cot.lon, type: trackType, stale: cot.stale, isShape: true,
+      customStyle: { color: style.color, opacity: style.fillOpacity, weight: style.weight }
+    };
 
     const existingPopupHtml = layer.getPopup().getContent();
-    const newPopupHtml = existingPopupHtml + `
-      <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
-        <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
-        <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📎 ATTACH FILE</button>
-        <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
-        <button onclick="window.sendShapeToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
-      </div>
-    `;
-    layer.bindPopup(newPopupHtml);
+    layer.bindPopup(existingPopupHtml + buildShapeEditorControls(id, style, trackType), { maxWidth: 320 });
+    layer.on('popupopen', () => {
+      const statusEl = document.getElementById('attach-status-' + id);
+      const info = window.drawnShapes[id];
+      if (statusEl && info && info.attachmentName) {
+        renderAttachStatus(statusEl, info.attachmentName, info.attachmentUrl);
+      }
+    });
 
     layer.addTo(copMap);
     shapeOverlays[id] = layer;
-    window.trackData[id] = { id, callsign: label, lat: cot.lat, lon: cot.lon, type: trackType, stale: cot.stale, isShape: true };
   }
 }
 
@@ -1737,11 +1774,16 @@ function processRouteCot(cot) {
   if (!cot.vertices || cot.vertices.length < 2) return;
 
   const style = shapeStyle(cot);
+  style.color = cssColorToHex(style.color); // keep it re-broadcastable — see cssColorToHex
   const latlngs = cot.vertices.map(v => [v.lat, v.lon]);
   const group = L.featureGroup();
 
-  // Route line
-  L.polyline(latlngs, { ...style, weight: style.weight + 1 }).addTo(group);
+  // Route line — kept as its own reference (not just a child of the group) since
+  // broadcastShape/attachFileToTrack read geometry via layer.getLatLngs(), which a
+  // featureGroup doesn't expose; the group itself stays the thing added to the map so
+  // recoloring (setStyle) touches the line and the waypoint markers together.
+  const routeLine = L.polyline(latlngs, { ...style, weight: style.weight + 1 });
+  routeLine.addTo(group);
 
   // Waypoint markers
   latlngs.forEach((ll, i) => {
@@ -1751,10 +1793,31 @@ function processRouteCot(cot) {
   });
 
   const label = cot.callsign || 'ROUTE';
-  group.bindPopup(buildPopup(label, [['TYPE', 'Route'], ['WAYPOINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])]));
+
+  window.drawnShapes = window.drawnShapes || {};
+  window.drawnShapes[id] = {
+    layer: routeLine, type: 'polyline', shapeType: 'polyline',
+    vertices: cot.vertices.map(v => ({ lat: v.lat, lon: v.lon })),
+    attachmentUrl: cot.attachmentUrl, attachmentName: cot.attachmentName
+  };
+  window.trackData[id] = {
+    id, callsign: label, lat: cot.lat, lon: cot.lon, type: 'ROUTE', stale: cot.stale, isShape: true,
+    customStyle: { color: style.color, opacity: style.fillOpacity, weight: style.weight }
+  };
+
+  const popupHtml = buildPopup(label, [['TYPE', 'Route'], ['WAYPOINTS', cot.vertices.length], ...(cot.remarks ? [['NOTE', cot.remarks]] : [])])
+    + buildShapeEditorControls(id, style, 'ROUTE');
+  group.bindPopup(popupHtml, { maxWidth: 320 });
+  group.on('popupopen', () => {
+    const statusEl = document.getElementById('attach-status-' + id);
+    const info = window.drawnShapes[id];
+    if (statusEl && info && info.attachmentName) {
+      renderAttachStatus(statusEl, info.attachmentName, info.attachmentUrl);
+    }
+  });
+
   group.addTo(copMap);
   shapeOverlays[id] = group;
-  window.trackData[id] = { id, callsign: label, lat: cot.lat, lon: cot.lon, type: 'ROUTE', stale: cot.stale, isShape: true };
 }
 
 // ── Emergency: b-a-* ─────────────────────────────────────────────
