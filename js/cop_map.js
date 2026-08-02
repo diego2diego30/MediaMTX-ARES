@@ -177,7 +177,16 @@ function shapeStyle(cot) {
   const fill   = cot.fillColor   !== undefined ? argbToCss(cot.fillColor, undefined, true) : 'rgba(0,255,94,0.35)';
   let weight = cot.strokeWeight !== undefined ? cot.strokeWeight : 2.5;
   if (weight < 2.5) weight = 2.5;
-  return { color: stroke, fillColor: fill, fillOpacity: 0.35, weight, opacity: 0.85, className: 'tak-shape' };
+  // Leaflet multiplies fillColor's own alpha (if any, from the rgba() string above) by this
+  // fillOpacity option — hardcoding it to 0.35 regardless of cot.fillColor's real alpha meant
+  // a shape saved/broadcast at e.g. 60% opacity always rendered back at a compounded ~21%.
+  // Mirror argbToCss's own extraction (same <0.1 fallback) so the two stay consistent.
+  let fillOpacity = 0.35;
+  if (cot.fillColor !== undefined) {
+    const extractedAlpha = ((cot.fillColor >>> 0) >> 24 & 0xff) / 255;
+    fillOpacity = extractedAlpha < 0.1 ? 0.35 : extractedAlpha;
+  }
+  return { color: stroke, fillColor: fill, fillOpacity, weight, opacity: 0.85, className: 'tak-shape' };
 }
 
 // hexToArgbInt on the server only understands "#rrggbb" — normalize the rgba(...) strings
