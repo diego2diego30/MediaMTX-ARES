@@ -1838,16 +1838,28 @@ window.addEventListener('DOMContentLoaded', () => {
     if (markers[id]) {
       const targetZoom = 15;
       let targetPoint = copMap.project(markers[id].getLatLng(), targetZoom);
-      // The sidebar is 300px wide on the right. 
-      // To center the object in the remaining visible viewport, 
-      // the map's true center must be shifted 150px to the right (half the sidebar width).
+      
       if (isSidebarOpen) {
+        // Center visually in the remaining viewport space (300px sidebar)
         targetPoint.x += 150;
       }
+      
+      // The popup with all the new buttons is very tall and opens upwards.
+      // Shift the true center DOWN by 150px so the marker sits lower on the screen,
+      // giving the popup plenty of room to display without getting cut off at the top.
+      targetPoint.y -= 150;
+      
       const offsetLatLng = copMap.unproject(targetPoint, targetZoom);
       
-      copMap.setView(offsetLatLng, targetZoom, { animate: true });
+      // CRITICAL FIX: Disable Leaflet's autoPan for this popup before opening.
+      // Otherwise, openPopup() calculates an auto-pan based on the map's current
+      // position *before* our setView animation finishes, throwing the marker into the corner!
+      const popup = markers[id].getPopup();
+      if (popup) popup.options.autoPan = false;
+      
       markers[id].openPopup();
+      copMap.setView(offsetLatLng, targetZoom, { animate: true });
+      
     } else if (shapeOverlays[id]) {
       try { 
         copMap.fitBounds(shapeOverlays[id].getBounds(), { 
