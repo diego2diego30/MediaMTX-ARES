@@ -1917,6 +1917,14 @@ function buildAttachmentMediaHtml(url, style) {
   if (url.match(/\.(mp4|webm|mov|m4v|ogg|ogv)$/i)) {
     return `<video src="${url}" controls preload="metadata" style="${style}"></video>`;
   }
+  if (url.match(/\.pdf$/i)) {
+    // A PDF page needs real height to be legible, unlike the small thumbnail boxes
+    // image/video previews use — keep the caller's max-width for layout consistency
+    // but give it a fixed taller height instead of reusing their max-height.
+    const widthMatch = style.match(/max-width:\s*([\d.]+px|100%)/i);
+    const maxWidth = widthMatch ? widthMatch[1] : '100%';
+    return `<a href="${url}" target="_blank"><embed src="${url}" type="application/pdf" style="width:100%;max-width:${maxWidth};height:220px;border:1px solid var(--green-dim);border-radius:4px;margin-top:4px;display:block;" /></a>`;
+  }
   return null;
 }
 
