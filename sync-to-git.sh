@@ -29,7 +29,7 @@ git commit -m "$COMMIT_MSG" || echo "No changes to commit."
 
 # 2. Push to GitHub (triggers CI/CD pipeline automatically)
 echo "=== [2/3] Pushing to GitHub ==="
-git push origin main || git push -u origin main
+git push origin HEAD:main || git push -u origin HEAD:main
 
 # 3. Auto-pull & reload on VPS (direct SSH fallback alongside CI/CD)
 echo "=== [3/3] Auto-Deploying to Live VPS ($VPS_IP) ==="
