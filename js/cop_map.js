@@ -1296,7 +1296,7 @@ function processPointCot(cot) {
   
   let popupHtml = buildPopup(cot.callsign, popupRows, id);
   let opts = '<option value="">-- SELECT RECIPIENT --</option>';
-  (window.takApiClients || []).forEach(callsign => {
+  (window.getTakRecipients ? window.getTakRecipients() : []).forEach(callsign => {
     opts += `<option value="${callsign}">${callsign}</option>`;
   });
 
@@ -1441,7 +1441,7 @@ function processShapeCot(cot) {
 
   if (layer) {
     let opts = '<option value="">-- SELECT RECIPIENT --</option>';
-    (window.takApiClients || []).forEach(callsign => {
+    (window.getTakRecipients ? window.getTakRecipients() : []).forEach(callsign => {
       opts += `<option value="${callsign}">${callsign}</option>`;
     });
 
@@ -1829,6 +1829,17 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   setInterval(pollTakClients, 5000);
   pollTakClients();
+
+  window.getTakRecipients = function() {
+    const clients = new Set(window.takApiClients || []);
+    Object.values(window.trackData || {}).forEach(t => {
+      // Include non-shape entities with callsigns (exclude generic COP drawings)
+      if (!t.isShape && t.callsign && !t.callsign.startsWith('COP-')) {
+        clients.add(t.callsign);
+      }
+    });
+    return Array.from(clients).sort();
+  };
 
   // TAK Objects sidebar + click-to-center
   window.panToTrack = function(id) {
