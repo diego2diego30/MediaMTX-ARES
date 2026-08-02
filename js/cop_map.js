@@ -461,7 +461,7 @@ function initCopMap() {
       // Inject the visual picker template
       const popupContent = `
         <div style="font-family: var(--font-main); min-width: 320px; max-width: 380px;">
-          <strong style="color:var(--green-bright); display:block; text-align:center; margin-bottom: 8px;">NEW TACTICAL MARKER</strong>
+          <strong id="marker-dialog-title-${layer._copId}" style="color:var(--green-bright); display:block; text-align:center; margin-bottom: 8px;">TACTICAL MARKER</strong>
           
           <!-- Name Input & Live Preview Row -->
           <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding: 8px; background: rgba(0, 255, 94, 0.05); border: 1px solid var(--green-dim);">
@@ -513,17 +513,17 @@ function initCopMap() {
           <button onclick="window.deleteCopMarker('${layer._copId}')" style="background:#ff4444;color:#fff;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px;">🗑️ DELETE MARKER</button>
         </div>
       `;
-      layer.bindPopup(popupContent, { maxWidth: 400 }).openPopup();
       
       // Initialize state for this marker popup
       window._markerStates = window._markerStates || {};
       window._markerStates[layer._copId] = { affiliation: 'u', category: 'ground' };
       
-      // We need a short timeout to let the popup HTML render into the DOM before we manipulate it
-      setTimeout(() => {
+      layer.bindPopup(popupContent, { maxWidth: 400 });
+      layer.on('popupopen', () => {
         window.renderIconGrid(layer._copId);
-        window.selectMarkerIcon(layer._copId, 'a-u-G'); // Default unknown ground
-      }, 50);
+        window.updateMarkerPreview(layer._copId);
+      });
+      layer.openPopup();
     } else {
       const popupContent = `
         <div style="font-family: var(--font-main);">
@@ -801,6 +801,17 @@ function initCopMap() {
     }
 
     previewContainer.innerHTML = iconHtml;
+
+    // Update Title with Object Type Label
+    const titleEl = document.getElementById(`marker-dialog-title-${id}`);
+    if (titleEl) {
+      let typeLabel = 'TACTICAL MARKER';
+      for (const cat of Object.values(ICON_CATALOG)) {
+        const match = cat.find(i => i.type.replace('a-?-', `a-${window._markerStates[id]?.affiliation || 'u'}-`) === cotType || i.type === cotType);
+        if (match) { typeLabel = match.label; break; }
+      }
+      titleEl.textContent = `MARKER: ${typeLabel.toUpperCase()}`;
+    }
 
     // Update actual marker layer icon on the map
     if (window.drawnShapes && window.drawnShapes[id] && window.drawnShapes[id].layer) {
@@ -1165,18 +1176,18 @@ function cotToSidc(cotType) {
   const dm = { G:'G', A:'A', S:'S', U:'U', F:'F', X:'X' }[parts[2]];
   if (!af || !dm) return null;
   
-  if (dm === 'A' && parts.length > 3 && parts[3] === 'U') return `S${af}APMFQ--------`;
+  if (dm === 'A' && parts.includes('U')) return `S${af}APMFQ--------`;
   
   if (parts.length > 3) {
-    const fn = parts[3].toUpperCase();
-    if (fn === 'I') return `S${af}${dm}PUCI-------`;
-    if (fn === 'A') return `S${af}${dm}PUCA-------`;
-    if (fn === 'M') return `S${af}${dm}PUCM-------`;
-    if (fn === 'MH' || fn === 'CH') return `S${af}${dm}PMH--------`;
-    if (fn === 'MF') return `S${af}${dm}PMF--------`;
-    if (fn === 'HQ') return `S${af}${dm}PHQ--------`;
-    if (fn === 'S') return `S${af}${dm}PUCS-------`;
-    if (fn === 'ES') return `S${af}${dm}PES--------`;
+    const last = parts[parts.length - 1].toUpperCase();
+    if (last === 'I') return `S${af}${dm}PUCI-------`;
+    if (last === 'A' && dm === 'G') return `S${af}${dm}PUCA-------`;
+    if (last === 'M' && dm === 'G') return `S${af}${dm}PUCM-------`;
+    if (last === 'MH' || last === 'CH' || (dm === 'A' && last === 'H')) return `S${af}${dm}PMH--------`;
+    if (last === 'MF' || (dm === 'A' && last === 'F')) return `S${af}${dm}PMF--------`;
+    if (last === 'HQ') return `S${af}${dm}PHQ--------`;
+    if (last === 'S') return `S${af}${dm}PUCS-------`;
+    if (last === 'ES') return `S${af}${dm}PES--------`;
   }
   
   return `S${af}${dm}P-------`;
