@@ -491,8 +491,19 @@ function initCopMap() {
             <!-- Icons injected here via JS -->
           </div>
 
-          <button onclick="window.broadcastCustomMarker('${layer._copId}')" style="background:var(--green-bright);color:#000;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,94,0.3);">📡 BROADCAST TO TAK</button>
-          <button onclick="window.deleteCopMarker('${layer._copId}')" style="background:#ff4444;color:#fff;border:none;padding:8px;margin-top:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px;">🗑️ DELETE MARKER</button>
+          <button onclick="window.saveCustomMarker('${layer._copId}', true)" style="background:var(--green-bright);color:#000;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,94,0.3); margin-bottom: 8px;">📡 BROADCAST TO TAK</button>
+          
+          <div style="display:flex; gap: 4px; margin-bottom: 8px;">
+            <select id="dest-new-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
+              <option value="">-- SELECT RECIPIENT --</option>
+              ${(window.getTakRecipients ? window.getTakRecipients() : []).map(c => '<option value="'+c+'">'+c+'</option>').join('')}
+            </select>
+            <button onclick="window.saveCustomMarker('${layer._copId}', true, document.getElementById('dest-new-user-${layer._copId}').value)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+          </div>
+          
+          <button onclick="window.saveCustomMarker('${layer._copId}', false)" style="background:#111;color:var(--grey-mid);border:1px solid var(--grey-mid);padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; margin-bottom: 8px;">💾 SAVE TO ARES COP (LOCAL)</button>
+
+          <button onclick="window.deleteCopMarker('${layer._copId}')" style="background:#ff4444;color:#fff;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px;">🗑️ DELETE MARKER</button>
         </div>
       `;
       layer.bindPopup(popupContent, { maxWidth: 400 }).openPopup();
@@ -524,7 +535,7 @@ function initCopMap() {
     }
   });
 
-  window.broadcastCustomMarker = function(id) {
+  window.saveCustomMarker = function(id, doBroadcast = true, recipient = null) {
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
     const item = window.drawnShapes[id];
     const layer = item.layer;
@@ -576,22 +587,51 @@ function initCopMap() {
     window.trackData[id].callsign = name;
     window.trackData[id].type = cotType;
     
-    if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
-      wsTelemetry.send(JSON.stringify({ 
-        cmd: 'push_marker_cot', 
-        uid: id, 
-        callsign: name, 
-        lat: layer.getLatLng().lat, 
-        lon: layer.getLatLng().lng, 
-        type: cotType 
-      }));
-      if (typeof showTacticalBanner === 'function') {
-        showTacticalBanner('📡 BROADCASTED ' + name + ' TO TAK');
+    if (doBroadcast) {
+      if (recipient && recipient.trim() !== '') {
+        // Send Point-to-Point
+        if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+          wsTelemetry.send(JSON.stringify({ 
+            cmd: 'push_marker_cot', 
+            uid: id, 
+            callsign: name, 
+            lat: layer.getLatLng().lat, 
+            lon: layer.getLatLng().lng, 
+            type: cotType,
+            destCallsign: recipient
+          }));
+          if (typeof showTacticalBanner === 'function') {
+            showTacticalBanner('📩 SENT ' + name + ' TO ' + recipient);
+          } else {
+            showCopAlert('📩 SENT ' + name + ' TO ' + recipient);
+          }
+        }
       } else {
-        showCopAlert('📡 BROADCASTED ' + name + ' TO TAK');
+        // Broadcast to all
+        if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+          wsTelemetry.send(JSON.stringify({ 
+            cmd: 'push_marker_cot', 
+            uid: id, 
+            callsign: name, 
+            lat: layer.getLatLng().lat, 
+            lon: layer.getLatLng().lng, 
+            type: cotType 
+          }));
+          if (typeof showTacticalBanner === 'function') {
+            showTacticalBanner('📡 BROADCASTED ' + name + ' TO TAK');
+          } else {
+            showCopAlert('📡 BROADCASTED ' + name + ' TO TAK');
+          }
+        } else {
+          showCopAlert('Cannot broadcast: WebSocket disconnected.', 'error');
+        }
       }
     } else {
-      showCopAlert('Cannot broadcast: WebSocket disconnected.', 'error');
+      if (typeof showTacticalBanner === 'function') {
+        showTacticalBanner('💾 SAVED ' + name + ' TO ARES COP');
+      } else {
+        showCopAlert('💾 SAVED ' + name + ' TO ARES COP');
+      }
     }
   };
 
