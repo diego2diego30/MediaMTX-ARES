@@ -50,6 +50,15 @@ if (!fs.existsSync(usersFile)) {
 let usersDB = JSON.parse(fs.readFileSync(usersFile));
 function saveUsers() { fs.writeFileSync(usersFile, JSON.stringify(usersDB, null, 2)); }
 
+// Per-user "Save to ARES COP (LOCAL)" cache — keyed by username so it follows a user
+// across sessions/devices instead of living only in that browser tab's memory.
+const savedObjectsFile = path.join(configDir, 'saved_objects.json');
+if (!fs.existsSync(savedObjectsFile)) {
+  fs.writeFileSync(savedObjectsFile, JSON.stringify({}, null, 2));
+}
+let savedObjectsDB = JSON.parse(fs.readFileSync(savedObjectsFile));
+function saveSavedObjects() { fs.writeFileSync(savedObjectsFile, JSON.stringify(savedObjectsDB, null, 2)); }
+
 const sessions = {};
 function getSession(req) {
   const cookieHeader = req.headers.cookie || '';
@@ -164,6 +173,52 @@ const httpServer = http.createServer((req, res) => {
           usersDB = usersDB.filter(u => u.username !== username); saveUsers();
           res.writeHead(200); res.end(JSON.stringify({ success: true }));
         } catch (e) { res.writeHead(400); res.end(); }
+      });
+      return;
+    }
+  }
+
+  if (req.url === '/api/cop/saved-objects') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(savedObjectsDB[session.username] || []));
+      return;
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const obj = JSON.parse(body);
+          if (!obj || !obj.id || !obj.kind) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing id or kind' })); return; }
+          obj.savedAt = new Date().toISOString();
+          const list = savedObjectsDB[session.username] = savedObjectsDB[session.username] || [];
+          const idx = list.findIndex(o => o.id === obj.id);
+          if (idx >= 0) list[idx] = obj; else list.push(obj);
+          saveSavedObjects();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (e) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
+      });
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const { id } = JSON.parse(body);
+          const list = savedObjectsDB[session.username] || [];
+          savedObjectsDB[session.username] = list.filter(o => o.id !== id);
+          saveSavedObjects();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (e) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
       });
       return;
     }

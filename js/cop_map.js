@@ -192,6 +192,71 @@ function cssColorToHex(c) {
   return '#' + toHex(m[1]) + toHex(m[2]) + toHex(m[3]);
 }
 
+// Client-side mirror of the server's hexToArgbInt (telemetry_bridge.js), needed to turn a
+// saved-profile shape's hex color back into the ARGB ints shapeStyle()/argbToCss() expect
+// when rehydrating it through processShapeCot.
+function hexToArgbIntClient(hex, opacity) {
+  let c = (hex || '#00ff5e').replace('#', '');
+  if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+  const r = parseInt(c.substring(0, 2), 16) || 0;
+  const g = parseInt(c.substring(2, 4), 16) || 255;
+  const b = parseInt(c.substring(4, 6), 16) || 94;
+  const a = Math.round(Math.max(0, Math.min(1, opacity !== undefined ? opacity : 1)) * 255);
+  return ((a << 24) | (r << 16) | (g << 8) | b) >> 0;
+}
+
+// ── Per-user saved-object profile ("Save to ARES COP (LOCAL)") ─────
+// Persists locally-saved markers/shapes server-side, keyed to the logged-in user's session,
+// so they survive a refresh and follow the user across devices instead of living only in
+// that browser tab's memory.
+function saveObjectToProfile(obj) {
+  fetch('/api/cop/saved-objects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj)
+  }).catch(err => console.error('[Save Profile Error]', err));
+}
+
+function deleteObjectFromProfile(id) {
+  fetch('/api/cop/saved-objects', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  }).catch(err => console.error('[Delete Profile Error]', err));
+}
+
+function loadSavedProfileObjects() {
+  const shapeCotType = { circle: 'u-d-c', rectangle: 'u-d-r', polygon: 'u-d-p', polyline: 'u-d-f' };
+  fetch('/api/cop/saved-objects')
+    .then(r => r.ok ? r.json() : [])
+    .then(list => {
+      (list || []).forEach(obj => {
+        if (obj.kind === 'marker') {
+          processPointCot({
+            uid: obj.id, type: obj.cotType, callsign: obj.callsign,
+            lat: obj.lat, lon: obj.lon,
+            attachmentUrl: obj.attachmentUrl || undefined,
+            attachmentName: obj.attachmentName || undefined
+          });
+        } else if (shapeCotType[obj.kind]) {
+          const fakeCot = {
+            uid: obj.id, type: shapeCotType[obj.kind], callsign: obj.callsign,
+            lat: obj.lat, lon: obj.lon,
+            vertices: obj.vertices || undefined,
+            ellipse: obj.radius ? { major: obj.radius, minor: obj.radius, angle: 0 } : undefined,
+            strokeColor: obj.color ? hexToArgbIntClient(obj.color, 1.0) : undefined,
+            fillColor: obj.color ? hexToArgbIntClient(obj.color, obj.opacity !== undefined ? obj.opacity : 0.35) : undefined,
+            strokeWeight: obj.weight,
+            attachmentUrl: obj.attachmentUrl || undefined,
+            attachmentName: obj.attachmentName || undefined
+          };
+          processShapeCot(fakeCot);
+        }
+      });
+    })
+    .catch(err => console.error('[Load Profile Error]', err));
+}
+
 // ── Popup builder ──────────────────────────────────────────────────
 function buildPopup(title, rows, markerId) {
   const inner = rows.map(([k, v]) => `<strong style="color:#fff">${k}:</strong> ${v}`).join('<br>');
@@ -843,6 +908,11 @@ function initCopMap() {
         }
       }
     } else {
+      saveObjectToProfile({
+        id, kind: 'marker', callsign: name, cotType,
+        lat: savedLatLng.lat, lon: savedLatLng.lng,
+        attachmentUrl: item.attachmentUrl || null, attachmentName: item.attachmentName || null
+      });
       if (typeof showTacticalBanner === 'function') {
         showTacticalBanner('💾 SAVED ' + name + ' TO ARES COP');
       } else {
@@ -1126,6 +1196,17 @@ function initCopMap() {
     }
 
     if (!doBroadcast) {
+      if (payload.shapeType) {
+        saveObjectToProfile({
+          id, kind: payload.shapeType, callsign: customName,
+          lat: payload.lat, lon: payload.lon,
+          radius: payload.radius || null, vertices: payload.vertices || null,
+          color: payload.color || null,
+          opacity: payload.opacity !== undefined ? payload.opacity : null,
+          weight: payload.weight || null,
+          attachmentUrl: payload.attachmentUrl || null, attachmentName: payload.attachmentName || null
+        });
+      }
       if (typeof showTacticalBanner === 'function') {
         showTacticalBanner('💾 SAVED ' + customName + ' TO ARES COP');
       } else {
@@ -2119,7 +2200,8 @@ window.deleteCopMarker = function(id) {
     delete window.drawnShapes[id];
   }
   if (window.trackData) delete window.trackData[id];
-  
+  deleteObjectFromProfile(id);
+
   if (wsTelemetry && wsTelemetry.readyState === 1) {
     const cancelXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <event version="2.0" uid="${id}" type="b-m-p-s-m-k" time="${new Date().toISOString()}" start="${new Date().toISOString()}" stale="${new Date().toISOString()}" how="h-g-i-g-o">
