@@ -751,8 +751,13 @@ function initCopMap() {
       } else if (typeof cotToSidc === 'function') {
         const sidc = cotToSidc(resolvedType);
         if (sidc) {
-          const sym = new ms.Symbol(sidc, { size: 20 });
-          iconHtml = sym.asSVG();
+          try {
+            const sym = new ms.Symbol(sidc, { size: 20 });
+            iconHtml = sym.asSVG();
+          } catch(e) {
+            console.error('milsymbol error:', e, sidc);
+            iconHtml = '<div style="color:red">x</div>';
+          }
         }
       }
 
@@ -761,7 +766,7 @@ function initCopMap() {
       const border = isSelected ? '1px solid var(--green-bright)' : '1px solid transparent';
 
       html += `
-        <div onclick="window.selectMarkerIcon('${id}', '${resolvedType}')" title="${item.label}" style="cursor:pointer; padding: 4px; border-radius: 4px; background: ${bg}; border: ${border}; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div onclick="window.selectMarkerIcon(event, '${id}', '${resolvedType}')" title="${item.label}" style="cursor:pointer; padding: 4px; border-radius: 4px; background: ${bg}; border: ${border}; display: flex; flex-direction: column; align-items: center; justify-content: center;">
           ${iconHtml}
           <div style="font-size: 8px; text-align: center; color: var(--green-dim); margin-top: 4px; line-height: 1;">${item.label.split(' ')[0]}</div>
         </div>
@@ -771,12 +776,18 @@ function initCopMap() {
     gridContainer.innerHTML = html;
   };
 
-  window.selectMarkerIcon = function(id, cotType) {
+  window.selectMarkerIcon = function(event, id, cotType) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     const typeInput = document.getElementById(`edit-marker-type-${id}`);
     if (typeInput) typeInput.value = cotType;
     
-    window.renderIconGrid(id); // Re-render to update selection highlight
-    window.updateMarkerPreview(id);
+    setTimeout(() => {
+      window.renderIconGrid(id); // Re-render to update selection highlight
+      window.updateMarkerPreview(id);
+    }, 10);
   };
 
   window.updateMarkerPreview = function(id) {
@@ -809,8 +820,13 @@ function initCopMap() {
     } else if (typeof cotToSidc === 'function' && resolvedType.startsWith('a-')) {
       const sidc = cotToSidc(resolvedType);
       if (sidc) {
-        const sym = new ms.Symbol(sidc, { size: 25 });
-        iconHtml = sym.asSVG();
+        try {
+          const sym = new ms.Symbol(sidc, { size: 25 });
+          iconHtml = sym.asSVG();
+        } catch(e) {
+          console.error('milsymbol error in preview:', e, sidc);
+          iconHtml = `<div style="background:#ff4444;color:#000;border:1px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;">❌</div>`;
+        }
       }
     } else {
       // Fallback
