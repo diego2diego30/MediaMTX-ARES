@@ -1545,6 +1545,10 @@ wss.on('connection', (ws) => {
         if (data.destCallsign) {
           detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
         }
+        if (data.attachmentUrl) {
+          const name = data.attachmentName || 'Attachment';
+          detailTags += `<attachment url="${data.attachmentUrl}" name="${name}"/>`;
+        }
         
         const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail>${detailTags}</detail></event>`;
         if (takClient && !takClient.destroyed) {
@@ -1585,6 +1589,10 @@ wss.on('connection', (ws) => {
         
         if (data.destCallsign) {
           detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
+        }
+        if (data.attachmentUrl) {
+          const name = data.attachmentName || 'Attachment';
+          detailTags += `<attachment url="${data.attachmentUrl}" name="${name}"/>`;
         }
         
         const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Drawn from ARES COP</remarks>${detailTags}</detail></event>`;

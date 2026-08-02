@@ -287,6 +287,61 @@ window.sendShapeToUser = function(id) {
   }
 };
 
+window.attachFileToTrack = function(id) {
+  const fileInput = document.getElementById(`attach-file-${id}`);
+  if (!fileInput) return;
+  fileInput.click();
+  
+  fileInput.onchange = () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    
+    showTacticalBanner('⏳ UPLOADING ATTACHMENT...');
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      fetch('/api/chat_upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, data: e.target.result })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.url) {
+          const td = window.trackData[id];
+          if (!td) return;
+          
+          if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+            if (td.isShape) {
+              const shapeInfo = window.drawnShapes && window.drawnShapes[id];
+              if (!shapeInfo) return;
+              const payload = {
+                cmd: 'push_shape_cot', uid: id, callsign: td.callsign || id, lat: td.lat, lon: td.lon,
+                shapeType: shapeInfo.shapeType, attachmentUrl: data.url, attachmentName: file.name
+              };
+              if (shapeInfo.radius) payload.radius = shapeInfo.radius;
+              if (shapeInfo.vertices) payload.vertices = shapeInfo.vertices;
+              if (shapeInfo.layer && shapeInfo.layer.options) {
+                payload.color = shapeInfo.layer.options.color; payload.opacity = shapeInfo.layer.options.fillOpacity; payload.weight = shapeInfo.layer.options.weight;
+              }
+              wsTelemetry.send(JSON.stringify(payload));
+            } else {
+              wsTelemetry.send(JSON.stringify({ 
+                cmd: 'push_marker_cot', uid: id, callsign: td.callsign || id, lat: td.lat, lon: td.lon,
+                attachmentUrl: data.url, attachmentName: file.name
+              }));
+            }
+            showTacticalBanner(`📎 ATTACHED ${file.name}`);
+          }
+        } else {
+          showTacticalBanner('⚠️ ATTACHMENT FAILED');
+        }
+      })
+      .catch(() => showTacticalBanner('⚠️ ATTACHMENT ERROR'));
+    };
+    reader.readAsDataURL(file);
+  };
+};
+
 window.updateShapeStyle = function(id) {
   const colorEl = document.getElementById(`edit-color-${id}`);
   const opacityEl = document.getElementById(`edit-opacity-${id}`);
@@ -1247,6 +1302,8 @@ function processPointCot(cot) {
 
   popupHtml += `
     <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+      <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
+      <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📎 ATTACH FILE</button>
       <button onclick="window.broadcastMarkerToTak('${id}')" style="background:var(--green-mid);color:#000;border:none;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 RE-BROADCAST TO TAK</button>
       <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
       <button onclick="window.sendMarkerToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
@@ -1391,6 +1448,8 @@ function processShapeCot(cot) {
     const existingPopupHtml = layer.getPopup().getContent();
     const newPopupHtml = existingPopupHtml + `
       <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+        <input type="file" id="attach-file-${id}" style="display:none" accept="*/*" />
+        <button onclick="window.attachFileToTrack('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📎 ATTACH FILE</button>
         <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
         <button onclick="window.sendShapeToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
       </div>
