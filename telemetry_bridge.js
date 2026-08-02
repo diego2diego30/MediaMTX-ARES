@@ -871,21 +871,26 @@ klvSocket.on('message', (msg) => {
            // Use real sensor azimuth (Tag5+Tag18), live FOV (Tag16), live range (Tag21)
            const cotXml = `<event version="2.0" uid="${cotUid}" type="a-f-A-M-F-Q" time="${cotNow.toISOString()}" start="${cotNow.toISOString()}" stale="${cotStale.toISOString()}" how="h-e"><point lat="${cotLat}" lon="${cotLon}" hae="${cotAlt}" ce="10" le="10"/><detail><uid Droid="${cotCallsign}"/><contact callsign="${cotCallsign}"/><track course="${cotHdg}" speed="${cotSpeed}"/><__video url="${videoUrl}" uid="${cotUid}" urlAlias="${cotCallsign}"><ConnectionEntry networkTimeout="12000" uid="${cotUid}" path="/${streamId}" protocol="rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="0" ignoreEmbeddedKlv="false" alias="${cotCallsign}"/></__video><sensor azimuth="${parseFloat(sensorAz.toFixed(1))}" fov="${liveFov}" range="${liveRange}" vfov="45" model="MediaMTX-KLV"/><remarks>ARES MediaMTX Video Feed (${streamId})</remarks><precisionlocation altsrc="DTED0"/></detail></event>`;
 
-            // Save to cotCache so video-alias marker pulls drone location (Canada) instead of falling back to San Diego
-            cotCache.set(cotUid, {
-              uid: cotUid,
-              type: 'a-f-A-M-F-Q',
-              lat: cotLat,
-              lon: cotLon,
-              alt: cotAlt,
-              hdg: cotHdg,
-              callsign: cotCallsign,
-              stale: cotStale.toISOString()
-            });
-
-            takClient.write(cotXml);
-            console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} sensor_az=${parseFloat(sensorAz.toFixed(1))} fov=${liveFov} range=${liveRange} → TAK Server`);
+           if (takClient && !takClient.destroyed) {
+             takClient.write(cotXml);
+             console.log(`[KLV→CoT] ${cotCallsign} lat=${cotLat} lon=${cotLon} alt=${cotAlt} hdg=${cotHdg} sensor_az=${parseFloat(sensorAz.toFixed(1))} fov=${liveFov} range=${liveRange} → TAK Server`);
+           }
          }
+
+         // Save to cotCache so video-alias marker pulls drone location (Canada) instead of falling back to Camp Lejeune
+         // We do this OUTSIDE the takClient check so it works even if TAK Server disconnects.
+         const cotUid = `mtx-uas-${streamId}`;
+         const cotCallsign = `MTX-${streamId.toUpperCase()}`;
+         cotCache.set(cotUid, {
+           uid: cotUid,
+           type: 'a-f-A-M-F-Q',
+           lat: parseFloat(lat.toFixed(6)),
+           lon: parseFloat(lon.toFixed(6)),
+           alt: alt ? parseFloat(alt.toFixed(1)) : 0,
+           hdg: hdg ? parseFloat(hdg.toFixed(1)) : 0,
+           callsign: cotCallsign,
+           stale: new Date(Date.now() + 60000).toISOString()
+         });
       }
     } catch(e) { console.warn('[KLV Parse Error]', e.message); }
 
