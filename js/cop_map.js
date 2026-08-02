@@ -1144,6 +1144,7 @@ function processPointCot(cot) {
         copMap.removeLayer(markers[id]);
         delete markers[id];
       }
+      removeFovOverlay(id);
       delete window.trackData[id];
       return;
     }
@@ -1157,6 +1158,7 @@ function processPointCot(cot) {
       delete markers[`video-${streamName}`];
       delete window.trackData[`video-${streamName}`];
     }
+    removeFovOverlay(`video-${streamName}`);
   }
 
   // If a TAK server drone marker arrives, but we already have a 0-latency KLV marker for it natively, suppress the TAK one
@@ -1167,6 +1169,7 @@ function processPointCot(cot) {
         copMap.removeLayer(markers[id]);
         delete markers[id];
       }
+      removeFovOverlay(id);
       delete window.trackData[id];
       return;
     }
