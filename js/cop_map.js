@@ -523,11 +523,32 @@ function initCopMap() {
       
       layer.bindPopup(popupContent, { maxWidth: 400, autoPanPaddingTopLeft: [10, 70] });
       layer.on('popupopen', () => {
-        window.renderIconGrid(layer._copId);
-        window.updateMarkerPreview(layer._copId);
+        // Leaflet rebuilds the popup's innerHTML from the original template string on every
+        // reopen, which reverts the hidden type input (and callsign/category) to their
+        // hardcoded defaults. Restore the saved selection into the regenerated DOM.
+        // Popup.update() (called below to reposition after content injection) does the same
+        // innerHTML reset, so this has to run again after that call too.
+        const restoreMarkerState = () => {
+          const state = window._markerStates[layer._copId];
+          if (!state) return;
+
+          const typeInputEl = document.getElementById('edit-marker-type-' + layer._copId);
+          if (typeInputEl && state.cotType) typeInputEl.value = state.cotType;
+
+          const nameInputEl = document.getElementById('edit-marker-name-' + layer._copId);
+          if (nameInputEl && state.name) nameInputEl.value = state.name;
+
+          const categorySelEl = document.getElementById('icon-category-sel-' + layer._copId);
+          if (categorySelEl && state.category) categorySelEl.value = state.category;
+
+          window.setMarkerAffiliation(layer._copId, state.affiliation);
+        };
+
+        restoreMarkerState();
         setTimeout(() => {
           if (layer.getPopup()) {
             layer.getPopup().update();
+            restoreMarkerState();
           }
         }, 50);
       });
@@ -783,7 +804,8 @@ function initCopMap() {
     }
     const typeInput = document.getElementById(`edit-marker-type-${id}`);
     if (typeInput) typeInput.value = cotType;
-    
+    if (window._markerStates[id]) window._markerStates[id].cotType = cotType;
+
     setTimeout(() => {
       window.renderIconGrid(id); // Re-render to update selection highlight
       window.updateMarkerPreview(id);
@@ -794,6 +816,9 @@ function initCopMap() {
     const previewContainer = document.getElementById(`icon-live-preview-${id}`);
     const typeInput = document.getElementById(`edit-marker-type-${id}`);
     if (!previewContainer || !typeInput) return;
+
+    const nameInputEl = document.getElementById(`edit-marker-name-${id}`);
+    if (nameInputEl && window._markerStates[id]) window._markerStates[id].name = nameInputEl.value;
 
     let baseType = typeInput.value;
     let resolvedType = baseType;
