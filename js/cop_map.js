@@ -1832,11 +1832,30 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // TAK Objects sidebar + click-to-center
   window.panToTrack = function(id) {
+    const sidebar = document.getElementById('cop-sidebar');
+    const isSidebarOpen = sidebar && !sidebar.classList.contains('collapsed');
+    
     if (markers[id]) {
-      copMap.setView(markers[id].getLatLng(), 15, { animate: true });
+      const targetZoom = 15;
+      let targetPoint = copMap.project(markers[id].getLatLng(), targetZoom);
+      // The sidebar is 300px wide on the right. 
+      // To center the object in the remaining visible viewport, 
+      // the map's true center must be shifted 150px to the right (half the sidebar width).
+      if (isSidebarOpen) {
+        targetPoint.x += 150;
+      }
+      const offsetLatLng = copMap.unproject(targetPoint, targetZoom);
+      
+      copMap.setView(offsetLatLng, targetZoom, { animate: true });
       markers[id].openPopup();
     } else if (shapeOverlays[id]) {
-      try { copMap.fitBounds(shapeOverlays[id].getBounds(), { padding: [40, 40], animate: true }); }
+      try { 
+        copMap.fitBounds(shapeOverlays[id].getBounds(), { 
+          paddingTopLeft: [40, 40],
+          paddingBottomRight: [isSidebarOpen ? 340 : 40, 40], 
+          animate: true 
+        }); 
+      }
       catch(e) { /* some groups may not have bounds */ }
     }
   };
