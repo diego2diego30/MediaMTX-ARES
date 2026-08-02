@@ -22,17 +22,9 @@
       <div class="cop-title">ARES COP</div>
     </a>
     
-    <div style="display:flex;align-items:center;gap:12px;">
-      <!-- Telemetry Ingest Mode Switch -->
-      <div id="telemetry-mode-selector" style="display:flex;background:rgba(0,0,0,0.6);border:1px solid rgba(0,255,94,0.3);border-radius:4px;overflow:hidden;font-family:monospace;font-size:11px;font-weight:bold;">
-        <button id="mode-btn-direct" onclick="window.setTelemetryMode('DIRECT')" style="padding:5px 10px;background:#00ff5e;color:#000;border:none;cursor:pointer;transition:all 0.2s;font-family:inherit;font-weight:bold;">⚡ 30Hz DIRECT</button>
-        <button id="mode-btn-tak" onclick="window.setTelemetryMode('TAK')" style="padding:5px 10px;background:transparent;color:#00ff5e;border:none;cursor:pointer;transition:all 0.2s;font-family:inherit;font-weight:bold;">🛰️ TAK COT</button>
-      </div>
-
-      <div class="cop-status" id="telemetry-status">
-        <div class="cop-status-dot"></div>
-        <span id="telemetry-status-text">CONNECTING...</span>
-      </div>
+    <div class="cop-status" id="telemetry-status">
+      <div class="cop-status-dot"></div>
+      <span id="telemetry-status-text">CONNECTING...</span>
     </div>
   </header>
 
@@ -54,6 +46,15 @@
 
   <!-- Sliding Sidebar -->
   <div id="cop-sidebar" class="cop-sidebar-panel collapsed">
+    
+    <div class="sidebar-section">
+      <h3>TELEMETRY INGEST</h3>
+      <div id="telemetry-mode-selector" style="display:flex;background:var(--bg-panel);border:1px solid var(--green-dim);border-radius:4px;overflow:hidden;font-family:monospace;font-size:11px;font-weight:bold;margin:10px 0;">
+        <button id="mode-btn-direct" onclick="window.setTelemetryMode('DIRECT')" style="flex:1;padding:8px;background:#00ff5e;color:#000;border:none;cursor:pointer;transition:all 0.2s;font-family:inherit;font-weight:bold;">⚡ 30Hz DIRECT</button>
+        <button id="mode-btn-tak" onclick="window.setTelemetryMode('TAK')" style="flex:1;padding:8px;background:transparent;color:#00ff5e;border:none;cursor:pointer;transition:all 0.2s;font-family:inherit;font-weight:bold;">🛰️ TAK COT</button>
+      </div>
+    </div>
+
     <div class="sidebar-section">
       <h3>VIDEO FEEDS</h3>
       <div id="sidebar-streams-list" class="streams-list">
