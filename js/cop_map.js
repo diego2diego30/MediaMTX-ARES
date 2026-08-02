@@ -938,7 +938,7 @@ function processKlvData(data) {
   // Pan map if this drone is the locked target
   if (lockTarget === id) copMap.panTo(latlng, { animate: false });
   if (Object.keys(markers).length === 1) copMap.panTo(latlng, { animate: true });
-  window.trackData[id] = { id, callsign, lat: data.lat, lon: data.lon, type: 'UAS FEED' };
+  window.trackData[id] = { id, callsign, lat: data.lat, lon: data.lon, type: 'AIRCRAFT/UAS' };
 }
 
 // ── SIDC mapper ───────────────────────────────────────────────────
@@ -1136,9 +1136,34 @@ function processPointCot(cot) {
   } else if (Object.keys(markers).length === 1 && Object.keys(shapeOverlays).length === 0) {
     copMap.panTo(latlng, { animate: true });
   }
+  // Suppress duplicate video alias CoT (video-demo) if a drone marker (mtx-uas-demo or klv-drone-demo) is active
+  if (id.startsWith('video-')) {
+    const streamName = id.replace('video-', '');
+    if (markers[`mtx-uas-${streamName}`] || markers[`klv-drone-${streamName}`]) {
+      if (markers[id]) {
+        copMap.removeLayer(markers[id]);
+        delete markers[id];
+      }
+      delete window.trackData[id];
+      return;
+    }
+  }
+
+  // If a drone marker arrives, remove any duplicate legacy video alias marker
+  if (id.startsWith('mtx-uas-') || id.startsWith('klv-drone-')) {
+    const streamName = id.replace('mtx-uas-', '').replace('klv-drone-', '');
+    if (markers[`video-${streamName}`]) {
+      copMap.removeLayer(markers[`video-${streamName}`]);
+      delete markers[`video-${streamName}`];
+      delete window.trackData[`video-${streamName}`];
+    }
+  }
+
   let trackType = 'GROUND UNIT';
-  if (cot.type.includes('-A-')) trackType = 'AIRCRAFT/UAS';
-  if (cot.type.startsWith('b-m')) trackType = 'MARKER';
+  if (cot.type.includes('-A-') || id.startsWith('mtx-uas-') || id.startsWith('klv-drone-')) trackType = 'AIRCRAFT/UAS';
+  else if (cot.type.startsWith('b-m')) trackType = 'MARKER';
+  else if (cot.type.startsWith('b-i-v') || id.startsWith('video-')) trackType = 'UAS FEED';
+
   window.trackData[id] = { id, callsign: cot.callsign, lat: cot.lat, lon: cot.lon, type: trackType, stale: cot.stale };
 
   // ── FOV cone for CoT events carrying <sensor> geometry (Phase 2e) ──
