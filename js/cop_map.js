@@ -899,6 +899,22 @@ function processKlvData(data) {
     return;
   }
   const id = 'klv-drone-' + (data.stream_id || '1');
+  const streamName = data.stream_id || 'demo';
+
+  // Actively remove any pre-existing TAK server CoT marker or FOV cone for this stream
+  if (markers[`mtx-uas-${streamName}`]) {
+    copMap.removeLayer(markers[`mtx-uas-${streamName}`]);
+    delete markers[`mtx-uas-${streamName}`];
+    removeFovOverlay(`mtx-uas-${streamName}`);
+    delete window.trackData[`mtx-uas-${streamName}`];
+  }
+  if (markers[`video-${streamName}`]) {
+    copMap.removeLayer(markers[`video-${streamName}`]);
+    delete markers[`video-${streamName}`];
+    removeFovOverlay(`video-${streamName}`);
+    delete window.trackData[`video-${streamName}`];
+  }
+
   const latlng = [parseFloat(data.lat), parseFloat(data.lon)];
   const callsign = data.stream_id === 'demo' ? 'DEMO DRONE' : (data.stream_id || 'KLV DRONE').toUpperCase();
   const az  = data.sensor_azimuth ?? data.hdg ?? 0;
