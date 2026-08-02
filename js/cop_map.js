@@ -381,8 +381,7 @@ window.attachFileToDrawnItem = function(id) {
         if (data.url && window.drawnShapes && window.drawnShapes[id]) {
           window.drawnShapes[id].attachmentUrl = data.url;
           window.drawnShapes[id].attachmentName = file.name;
-          const statusEl = document.getElementById(`attach-status-${id}`);
-          if (statusEl) statusEl.textContent = `📎 ${file.name}`;
+          renderAttachStatus(document.getElementById(`attach-status-${id}`), file.name, data.url);
           showTacticalBanner(`📎 ATTACHED ${file.name}`);
         } else {
           showTacticalBanner('⚠️ ATTACHMENT FAILED');
@@ -502,7 +501,27 @@ function initCopMap() {
     
     if (e.layerType === 'marker') {
       const defaultName = `Target-${Date.now().toString().slice(-4)}`;
-      
+
+      // Give the marker a real divIcon immediately instead of leaving Leaflet's default
+      // teardrop pin in place. updateMarkerPreview() below updates the live icon by writing
+      // into markerEl.innerHTML, which silently no-ops on an <img> (what the default pin
+      // actually is) — the container still got force-resized to 30x30 though, which just
+      // squished the teardrop image until the marker was eventually saved/broadcast.
+      if (typeof cotToSidc === 'function' && typeof ms !== 'undefined') {
+        try {
+          const defaultSidc = cotToSidc('a-u-G');
+          if (defaultSidc) {
+            const defaultSym = new ms.Symbol(defaultSidc, { size: 25 });
+            layer.setIcon(L.divIcon({
+              className: 'tak-marker-icon',
+              html: defaultSym.asSVG(),
+              iconSize: [defaultSym.getSize().width, defaultSym.getSize().height],
+              iconAnchor: [defaultSym.getAnchor().x, defaultSym.getAnchor().y]
+            }));
+          }
+        } catch (err) { /* fall back to Leaflet's default pin */ }
+      }
+
       // Inject the visual picker template
       const popupContent = `
         <div style="font-family: var(--font-main); min-width: 320px; max-width: 380px;">
@@ -598,7 +617,7 @@ function initCopMap() {
           const drawnItem = window.drawnShapes && window.drawnShapes[layer._copId];
           const attachStatusEl = document.getElementById('attach-status-' + layer._copId);
           if (attachStatusEl && drawnItem && drawnItem.attachmentName) {
-            attachStatusEl.textContent = '📎 ' + drawnItem.attachmentName;
+            renderAttachStatus(attachStatusEl, drawnItem.attachmentName, drawnItem.attachmentUrl);
           }
         };
 
@@ -625,17 +644,18 @@ function initCopMap() {
               <button onclick="window.attachFileToDrawnItem('${layer._copId}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:6px 8px;width:100%;font-weight:bold;cursor:pointer;font-size:11px;">📎 ATTACH FILE</button>
               <div id="attach-status-${layer._copId}" style="font-size:10px;color:var(--green-dim);margin-top:2px;"></div>
             </div>
-            <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
+            <button onclick="window.broadcastShape('${layer._copId}', true)" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
             <div style="margin-top:8px;">
               <div style="display:flex; gap: 4px; margin-bottom: 4px;">
                 <select id="dest-shape-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
                   <option value="">-- SELECT RECIPIENT --</option>
                   ${(window.getTakRecipients ? window.getTakRecipients() : []).map(c => '<option value="'+c+'">'+c+'</option>').join('')}
                 </select>
-                <button onclick="window.broadcastShape('${layer._copId}', document.getElementById('dest-shape-user-${layer._copId}').value, document.getElementById('dp-shape-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
+                <button onclick="window.broadcastShape('${layer._copId}', true, document.getElementById('dest-shape-user-${layer._copId}').value, document.getElementById('dp-shape-toggle-${layer._copId}').checked)" style="background:#0f2a18; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px 8px; font-weight:bold; cursor:pointer; font-size: 11px;">📩 SEND TO USER</button>
               </div>
               <label style="color:var(--green-bright);font-size:10px; display:flex; align-items:center; cursor:pointer;"><input type="checkbox" id="dp-shape-toggle-${layer._copId}" checked style="margin-right:4px;"> Send as Mission Package (GeoChat)</label>
             </div>
+            <button onclick="window.broadcastShape('${layer._copId}', false)" style="margin-top:8px;background:#0a1a2f;color:#00d2ff;border:1px solid #00a8ff;padding:6px;width:100%;font-weight:bold;cursor:pointer;">💾 SAVE TO ARES COP (LOCAL)</button>
             <button onclick="window.deleteCopMarker('${layer._copId}')" style="margin-top:8px;background:#ff4444;color:#fff;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">🗑️ DELETE SHAPE</button>
           </div>
         </div>
@@ -648,7 +668,7 @@ function initCopMap() {
         const drawnItem = window.drawnShapes && window.drawnShapes[layer._copId];
         const attachStatusEl = document.getElementById('attach-status-' + layer._copId);
         if (attachStatusEl && drawnItem && drawnItem.attachmentName) {
-          attachStatusEl.textContent = '📎 ' + drawnItem.attachmentName;
+          renderAttachStatus(attachStatusEl, drawnItem.attachmentName, drawnItem.attachmentUrl);
         }
       });
       layer.openPopup();
@@ -923,6 +943,10 @@ function initCopMap() {
     }
 
     let iconHtml = '';
+    // Real size/anchor of whatever iconHtml ends up holding — defaults match the 30x30
+    // emoji/fallback divs below; the milsymbol branch overwrites these with the SVG's
+    // actual bounding box, since it's rarely exactly 30x30.
+    let liveIconW = 30, liveIconH = 30, liveAnchorX = 15, liveAnchorY = 15;
     if (customEmojiConfig) {
        iconHtml = `<div style="background:${customEmojiConfig.color};color:#fff;border:1px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow: 0 0 8px ${customEmojiConfig.color};">${customEmojiConfig.customEmoji}</div>`;
     } else if (typeof cotToSidc === 'function' && resolvedType.startsWith('a-')) {
@@ -931,6 +955,10 @@ function initCopMap() {
         try {
           const sym = new ms.Symbol(sidc, { size: 25 });
           iconHtml = sym.asSVG();
+          liveIconW = sym.getSize().width;
+          liveIconH = sym.getSize().height;
+          liveAnchorX = sym.getAnchor().x;
+          liveAnchorY = sym.getAnchor().y;
         } catch(e) {
           console.error('milsymbol error in preview:', e, sidc);
           iconHtml = `<div style="background:#ff4444;color:#000;border:1px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;">❌</div>`;
@@ -954,22 +982,25 @@ function initCopMap() {
       titleEl.textContent = `MARKER: ${typeLabel.toUpperCase()}`;
     }
 
-    // Update actual marker layer icon on the map WITHOUT closing the popup (setIcon destroys the DOM node)
+    // Update actual marker layer icon on the map WITHOUT closing the popup (setIcon destroys the DOM node).
+    // Size/anchor must match the icon's real dimensions (computed above) — a mismatched
+    // hardcoded size here is what caused the marker to visibly drift every time this ran
+    // (e.g. every popup reopen), since it would override Leaflet's correct anchor with a
+    // wrong one instead of leaving it alone.
     if (window.drawnShapes && window.drawnShapes[id] && window.drawnShapes[id].layer) {
       const markerEl = window.drawnShapes[id].layer.getElement();
       if (markerEl) {
         markerEl.innerHTML = iconHtml;
-        // Ensure the container is sized correctly for the new icon
-        markerEl.style.width = '30px';
-        markerEl.style.height = '30px';
-        markerEl.style.marginLeft = '-15px'; // iconAnchor X
-        markerEl.style.marginTop = '-15px';  // iconAnchor Y
+        markerEl.style.width = liveIconW + 'px';
+        markerEl.style.height = liveIconH + 'px';
+        markerEl.style.marginLeft = -liveAnchorX + 'px';
+        markerEl.style.marginTop = -liveAnchorY + 'px';
       }
     }
   };
 
 
-  window.broadcastShape = function(id, recipient = null, sendAsMissionPackage = false) {
+  window.broadcastShape = function(id, doBroadcast = true, recipient = null, sendAsMissionPackage = false) {
     if (!window.drawnShapes || !window.drawnShapes[id]) return;
     const item = window.drawnShapes[id];
     const layer = item.layer;
@@ -1026,6 +1057,15 @@ function initCopMap() {
     if (recipient && recipient.trim() !== '') {
       payload.destCallsign = recipient;
       payload.sendAsMissionPackage = sendAsMissionPackage;
+    }
+
+    if (!doBroadcast) {
+      if (typeof showTacticalBanner === 'function') {
+        showTacticalBanner('💾 SAVED ' + customName + ' TO ARES COP');
+      } else {
+        showCopAlert('💾 SAVED ' + customName + ' TO ARES COP');
+      }
+      return;
     }
 
     if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
@@ -1517,7 +1557,9 @@ function processPointCot(cot) {
   if (cot.attachmentUrl || cot.attachmentName) {
     const name = cot.attachmentName || 'Download Attachment';
     const url = cot.attachmentUrl || '#';
-    popupRows.push(['ATTACHMENT', `<a href="${url}" target="_blank" style="color:var(--green-bright);font-weight:bold;text-decoration:underline;">📎 ${name}</a>`]);
+    const link = `<a href="${url}" target="_blank" style="color:var(--green-bright);font-weight:bold;text-decoration:underline;">📎 ${name}</a>`;
+    const media = cot.attachmentUrl ? buildAttachmentMediaHtml(url, 'max-width:180px;max-height:120px;border:1px solid var(--green-bright);border-radius:4px;margin-top:4px;display:block;') : null;
+    popupRows.push(['ATTACHMENT', media ? `${link}<br>${media}` : link]);
   }
   
   let popupHtml = buildPopup(cot.callsign, popupRows, id);
@@ -1800,6 +1842,28 @@ function pruneStaleMarkers() {
   });
 }
 
+// ── Attachment media preview ────────────────────────────────────────
+// Shared by geochat messages and object (marker/shape) popups: renders an
+// inline <img>/<video> for recognized media URLs, or null for anything else
+// so callers can fall back to a plain download link.
+function buildAttachmentMediaHtml(url, style) {
+  if (!url) return null;
+  if (url.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)$/i)) {
+    return `<a href="${url}" target="_blank"><img src="${url}" style="${style}" /></a>`;
+  }
+  if (url.match(/\.(mp4|webm|mov|m4v|ogg|ogv)$/i)) {
+    return `<video src="${url}" controls preload="metadata" style="${style}"></video>`;
+  }
+  return null;
+}
+
+function renderAttachStatus(el, name, url) {
+  if (!el) return;
+  const label = `📎 ${name}`;
+  const media = buildAttachmentMediaHtml(url, 'max-width:120px;max-height:80px;border:1px solid var(--green-dim);border-radius:4px;margin-top:4px;display:block;');
+  el.innerHTML = media ? `${label}<br>${media}` : label;
+}
+
 // ── Chat ──────────────────────────────────────────────────────────
 function initChat() {
   const toggleBtn  = document.getElementById('chat-toggle-btn');
@@ -1927,12 +1991,8 @@ function renderChatLog(selectedView) {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const mediaStyle = 'max-width:100%; border-radius:4px; margin-top:4px; border:1px solid var(--green-dim);';
     displayMsg = displayMsg.replace(urlRegex, function(url) {
-      if (url.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)$/i) != null) {
-        return `<br><a href="${url}" target="_blank"><img src="${url}" style="${mediaStyle}" /></a>`;
-      }
-      if (url.match(/\.(mp4|webm|mov|m4v|ogg|ogv)$/i) != null) {
-        return `<br><video src="${url}" controls preload="metadata" style="${mediaStyle}"></video>`;
-      }
+      const media = buildAttachmentMediaHtml(url, mediaStyle);
+      if (media) return `<br>${media}`;
       return `<a href="${url}" target="_blank" style="color:var(--green-bright); text-decoration:underline; word-break:break-all;">${url}</a>`;
     });
 
