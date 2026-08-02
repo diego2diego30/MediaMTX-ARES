@@ -349,6 +349,51 @@ window.attachFileToTrack = function(id) {
   };
 };
 
+// Attach a file to a marker/shape that hasn't been broadcast yet (still sitting in
+// window.drawnShapes). Stored on the drawnShapes entry so saveCustomMarker/broadcastShape
+// can include it once the user actually broadcasts or saves the item.
+window.attachFileToDrawnItem = function(id) {
+  const fileInput = document.getElementById(`attach-file-${id}`);
+  if (!fileInput) return;
+  fileInput.click();
+
+  fileInput.onchange = () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    showTacticalBanner('⏳ UPLOADING ATTACHMENT...');
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      fetch('/api/chat_upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, data: e.target.result })
+      })
+      .then(async r => {
+        if (!r.ok) {
+          let msg = r.statusText;
+          try { const errObj = await r.json(); if (errObj.error) msg = errObj.error; } catch(e) {}
+          throw new Error(`${r.status} ${msg}`);
+        }
+        return r.json();
+      })
+      .then(data => {
+        if (data.url && window.drawnShapes && window.drawnShapes[id]) {
+          window.drawnShapes[id].attachmentUrl = data.url;
+          window.drawnShapes[id].attachmentName = file.name;
+          const statusEl = document.getElementById(`attach-status-${id}`);
+          if (statusEl) statusEl.textContent = `📎 ${file.name}`;
+          showTacticalBanner(`📎 ATTACHED ${file.name}`);
+        } else {
+          showTacticalBanner('⚠️ ATTACHMENT FAILED');
+        }
+      })
+      .catch(err => showTacticalBanner('⚠️ ATTACHMENT ERROR: ' + err.message));
+    };
+    reader.readAsDataURL(file);
+  };
+};
+
 window.updateShapeStyle = function(id) {
   const colorEl = document.getElementById(`edit-color-${id}`);
   const opacityEl = document.getElementById(`edit-opacity-${id}`);
@@ -498,8 +543,15 @@ function initCopMap() {
             <!-- Icons injected here via JS -->
           </div>
 
+          <!-- File Attachment -->
+          <div style="margin-bottom: 8px;">
+            <input type="file" id="attach-file-${layer._copId}" style="display:none" accept="*/*" />
+            <button onclick="window.attachFileToDrawnItem('${layer._copId}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:6px 8px;width:100%;font-weight:bold;cursor:pointer;font-size:11px;">📎 ATTACH FILE</button>
+            <div id="attach-status-${layer._copId}" style="font-size:10px;color:var(--green-dim);margin-top:2px;"></div>
+          </div>
+
           <button onclick="window.saveCustomMarker('${layer._copId}', true)" style="background:var(--green-bright);color:#000;border:none;padding:8px;width:100%;font-weight:bold;cursor:pointer; font-size: 12px; box-shadow: 0 0 10px rgba(0,255,94,0.3); margin-bottom: 8px;">📡 BROADCAST TO TAK</button>
-          
+
           <div style="margin-bottom: 8px;">
             <div style="display:flex; gap: 4px; margin-bottom: 4px;">
               <select id="dest-new-user-${layer._copId}" style="flex:1; background:#000; color:var(--green-bright); border:1px solid var(--green-mid); padding:4px; font-size: 11px;">
@@ -542,6 +594,12 @@ function initCopMap() {
           if (categorySelEl && state.category) categorySelEl.value = state.category;
 
           window.setMarkerAffiliation(layer._copId, state.affiliation);
+
+          const drawnItem = window.drawnShapes && window.drawnShapes[layer._copId];
+          const attachStatusEl = document.getElementById('attach-status-' + layer._copId);
+          if (attachStatusEl && drawnItem && drawnItem.attachmentName) {
+            attachStatusEl.textContent = '📎 ' + drawnItem.attachmentName;
+          }
         };
 
         restoreMarkerState();
@@ -562,6 +620,11 @@ function initCopMap() {
             <label style="color:var(--green-bright);font-size:11px;">COLOR: <select id="edit-color-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="#00ff5e">Green</option><option value="#ff4444">Red</option><option value="#00ccff">Cyan</option><option value="#ffcc00">Yellow</option><option value="#ff00ff">Magenta</option><option value="#ffffff">White</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">OPACITY: <select id="edit-opacity-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="0.35">35% (TAK Std)</option><option value="0.15">15%</option><option value="0.60">60%</option><option value="0.85">85%</option></select></label><br>
             <label style="color:var(--green-bright);font-size:11px;">BORDER: <select id="edit-weight-${layer._copId}" onchange="window.updateShapeStyle('${layer._copId}')" style="background:#000;color:#fff;border:1px solid var(--green-dim);font-size:11px;"><option value="2.5">2.5px</option><option value="4">4px</option><option value="6">6px</option><option value="1">1px</option></select></label><br>
+            <div style="margin-top:8px;">
+              <input type="file" id="attach-file-${layer._copId}" style="display:none" accept="*/*" />
+              <button onclick="window.attachFileToDrawnItem('${layer._copId}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:6px 8px;width:100%;font-weight:bold;cursor:pointer;font-size:11px;">📎 ATTACH FILE</button>
+              <div id="attach-status-${layer._copId}" style="font-size:10px;color:var(--green-dim);margin-top:2px;"></div>
+            </div>
             <button onclick="window.broadcastShape('${layer._copId}')" style="margin-top:8px;background:var(--green-bright);color:#000;border:none;padding:6px;width:100%;font-weight:bold;cursor:pointer;">📡 SAVE & BROADCAST TO TAK</button>
             <div style="margin-top:8px;">
               <div style="display:flex; gap: 4px; margin-bottom: 4px;">
@@ -577,7 +640,18 @@ function initCopMap() {
           </div>
         </div>
       `;
-      layer.bindPopup(popupContent).openPopup();
+      layer.bindPopup(popupContent);
+      layer.on('popupopen', () => {
+        // Restore the attach-status label, which Leaflet wipes on every reopen along with
+        // the rest of this static-template popup — the underlying attachment data itself
+        // lives on window.drawnShapes[id] so it's unaffected either way.
+        const drawnItem = window.drawnShapes && window.drawnShapes[layer._copId];
+        const attachStatusEl = document.getElementById('attach-status-' + layer._copId);
+        if (attachStatusEl && drawnItem && drawnItem.attachmentName) {
+          attachStatusEl.textContent = '📎 ' + drawnItem.attachmentName;
+        }
+      });
+      layer.openPopup();
     }
   });
 
@@ -633,19 +707,26 @@ function initCopMap() {
     window.trackData[id].callsign = name;
     window.trackData[id].type = cotType;
     
+    if (item.attachmentUrl) {
+      window.trackData[id].attachmentUrl = item.attachmentUrl;
+      window.trackData[id].attachmentName = item.attachmentName;
+    }
+
     if (doBroadcast) {
       if (recipient && recipient.trim() !== '') {
         // Send Point-to-Point
         if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
-          wsTelemetry.send(JSON.stringify({ 
-            cmd: 'push_marker_cot', 
-            uid: id, 
-            callsign: name, 
-            lat: layer.getLatLng().lat, 
-            lon: layer.getLatLng().lng, 
+          wsTelemetry.send(JSON.stringify({
+            cmd: 'push_marker_cot',
+            uid: id,
+            callsign: name,
+            lat: layer.getLatLng().lat,
+            lon: layer.getLatLng().lng,
             type: cotType,
             destCallsign: recipient,
-            sendAsMissionPackage: sendAsMissionPackage
+            sendAsMissionPackage: sendAsMissionPackage,
+            attachmentUrl: item.attachmentUrl,
+            attachmentName: item.attachmentName
           }));
           if (typeof showTacticalBanner === 'function') {
             showTacticalBanner('📩 SENT ' + name + ' TO ' + recipient);
@@ -656,13 +737,15 @@ function initCopMap() {
       } else {
         // Broadcast to all
         if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
-          wsTelemetry.send(JSON.stringify({ 
-            cmd: 'push_marker_cot', 
-            uid: id, 
-            callsign: name, 
-            lat: layer.getLatLng().lat, 
-            lon: layer.getLatLng().lng, 
-            type: cotType 
+          wsTelemetry.send(JSON.stringify({
+            cmd: 'push_marker_cot',
+            uid: id,
+            callsign: name,
+            lat: layer.getLatLng().lat,
+            lon: layer.getLatLng().lng,
+            type: cotType,
+            attachmentUrl: item.attachmentUrl,
+            attachmentName: item.attachmentName
           }));
           if (typeof showTacticalBanner === 'function') {
             showTacticalBanner('📡 BROADCASTED ' + name + ' TO TAK');
@@ -903,7 +986,14 @@ function initCopMap() {
     window.trackData[id].callsign = customName;
     
     let payload = { cmd: 'push_shape_cot', uid: id, callsign: customName };
-    
+
+    if (item.attachmentUrl) {
+      payload.attachmentUrl = item.attachmentUrl;
+      payload.attachmentName = item.attachmentName;
+      window.trackData[id].attachmentUrl = item.attachmentUrl;
+      window.trackData[id].attachmentName = item.attachmentName;
+    }
+
     const td = window.trackData && window.trackData[id];
     if (td && td.customStyle) {
       payload.color = td.customStyle.color;
