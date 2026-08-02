@@ -54,6 +54,8 @@ function openPip(title, path) {
   window.activePipStream = path;
   const container = document.getElementById('pip-container');
   const titleEl = document.getElementById('pip-title');
+  const iframeElement = document.getElementById('pip-iframe-player');
+  
   container.classList.remove('hidden');
   titleEl.textContent = title;
 
@@ -63,44 +65,37 @@ function openPip(title, path) {
     host = 'localhost';
   }
   const mtxPort = '8888'; 
+  const webrtcPort = '8889';
   const IS_PROXIED = window.location.port === '' || window.location.port === '80' || window.location.port === '8080' || window.location.port === '443';
-  let streamUrl;
   
+  // Prefer WebRTC via MediaMTX's native HTML player for zero latency
+  let webrtcUrl;
   if (IS_PROXIED) {
-    // When served via NGINX or Cloudflare, route through the /hls/ proxy to avoid CORS/port issues
-    streamUrl = `/hls/${path}/index.m3u8`;
+    // Requires NGINX to proxy /webrtc/ to 8889 (or serve the WebRTC index on the same path if configured in mediamtx.yml)
+    // We'll point directly to the stream path which MediaMTX handles if webRTC is true.
+    webrtcUrl = `/${path}/`; 
   } else {
-    streamUrl = `${proto}//${host}:${mtxPort}/${path}/index.m3u8`;
+    webrtcUrl = `${proto}//${host}:${webrtcPort}/${path}/`;
   }
 
-  if (Hls.isSupported()) {
-    if (hlsInstance) hlsInstance.destroy();
-    pipVideoElement.removeAttribute('src');
-    pipVideoElement.load();
-    hlsInstance = new Hls({
-      xhrSetup: function(xhr, targetUrl) {
-        if (targetUrl && (targetUrl.startsWith('/') || targetUrl.includes(window.location.host))) {
-          xhr.withCredentials = true;
-        }
-      }
-    });
-    hlsInstance.loadSource(streamUrl);
-    hlsInstance.attachMedia(pipVideoElement);
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-      pipVideoElement.muted = true;
-      pipVideoElement.play().catch(() => {});
-    });
-  } else if (pipVideoElement.canPlayType('application/vnd.apple.mpegurl')) {
-    pipVideoElement.src = streamUrl;
-    pipVideoElement.addEventListener('loadedmetadata', function() {
-      pipVideoElement.play();
-    });
+  // Hide HLS video player, show WebRTC iframe
+  pipVideoElement.classList.add('hidden');
+  pipVideoElement.removeAttribute('src');
+  pipVideoElement.load();
+  if (hlsInstance) {
+    hlsInstance.destroy();
+    hlsInstance = null;
   }
+
+  iframeElement.classList.remove('hidden');
+  iframeElement.src = webrtcUrl;
 }
 
 function closePip() {
   window.activePipStream = null;
   const container = document.getElementById('pip-container');
+  const iframeElement = document.getElementById('pip-iframe-player');
+  
   container.classList.add('hidden');
   if (hlsInstance) {
     hlsInstance.destroy();
@@ -109,4 +104,7 @@ function closePip() {
   pipVideoElement.pause();
   pipVideoElement.removeAttribute('src');
   pipVideoElement.load();
+  
+  iframeElement.src = ''; // stop WebRTC stream
+  iframeElement.classList.add('hidden');
 }
