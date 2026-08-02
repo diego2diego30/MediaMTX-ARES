@@ -767,12 +767,27 @@ function initCopMap() {
     
     layer.bindTooltip(name, { direction: 'top', className: 'tak-marker-tooltip', permanent: true });
     layer.closePopup();
-    
+
+    // Register this drawn marker as a first-class marker, matching what processPointCot
+    // does for CoT-received ones. Without this, the layer only ever lived in
+    // window.drawnShapes — markers[id] and trackData[id].id/lat/lon were never set, so the
+    // sidebar showed "NaN, NaN" and its onclick called panToTrack('undefined'), a silent
+    // no-op (markers['undefined'] and shapeOverlays['undefined'] are both false). Same gap
+    // broke attachFileToTrack for these markers, since it reads trackData[id].lat/lon too.
+    markers[id] = layer;
+    const savedLatLng = layer.getLatLng();
+    let trackType = 'GROUND UNIT';
+    if (cotType.includes('-A-')) trackType = 'AIRCRAFT/UAS';
+    else if (cotType.startsWith('b-m')) trackType = 'MARKER';
+
     window.trackData = window.trackData || {};
     window.trackData[id] = window.trackData[id] || {};
+    window.trackData[id].id = id;
     window.trackData[id].callsign = name;
-    window.trackData[id].type = cotType;
-    
+    window.trackData[id].type = trackType;
+    window.trackData[id].lat = savedLatLng.lat;
+    window.trackData[id].lon = savedLatLng.lng;
+
     if (item.attachmentUrl) {
       window.trackData[id].attachmentUrl = item.attachmentUrl;
       window.trackData[id].attachmentName = item.attachmentName;
