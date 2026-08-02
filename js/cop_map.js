@@ -1159,6 +1159,19 @@ function processPointCot(cot) {
     }
   }
 
+  // If a TAK server drone marker arrives, but we already have a 0-latency KLV marker for it natively, suppress the TAK one
+  if (id.startsWith('mtx-uas-')) {
+    const streamName = id.replace('mtx-uas-', '');
+    if (markers[`klv-drone-${streamName}`]) {
+      if (markers[id]) {
+        copMap.removeLayer(markers[id]);
+        delete markers[id];
+      }
+      delete window.trackData[id];
+      return;
+    }
+  }
+
   let trackType = 'GROUND UNIT';
   if (cot.type.includes('-A-') || id.startsWith('mtx-uas-') || id.startsWith('klv-drone-')) trackType = 'AIRCRAFT/UAS';
   else if (cot.type.startsWith('b-m')) trackType = 'MARKER';
