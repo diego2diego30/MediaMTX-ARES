@@ -374,6 +374,50 @@ function initCopMap() {
   copMap = L.map('cop-map-container', { zoomControl: false }).setView([38.9784, -76.4922], 13);
   L.control.zoom({ position: 'bottomleft' }).addTo(copMap);
 
+  // Limit two-finger trackpad swipe zoom to max 3 levels per gesture (in or out) without affecting pinch zoom
+  (function setupTrackpadSwipeZoomLimit(map) {
+    const container = map.getContainer();
+    let gestureStartZoom = null;
+    let accumulatedDeltaY = 0;
+    let gestureResetTimer = null;
+
+    container.addEventListener('wheel', function(e) {
+      // Do not alter trackpad pinch-to-zoom (which sends wheel events with ctrlKey = true on macOS)
+      if (e.ctrlKey) {
+        return;
+      }
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      const currentZoom = map.getZoom();
+
+      if (gestureStartZoom === null) {
+        gestureStartZoom = currentZoom;
+        accumulatedDeltaY = 0;
+      }
+
+      clearTimeout(gestureResetTimer);
+      gestureResetTimer = setTimeout(() => {
+        gestureStartZoom = null;
+        accumulatedDeltaY = 0;
+      }, 250);
+
+      accumulatedDeltaY += e.deltaY;
+
+      const deltaLevels = Math.round(-accumulatedDeltaY / 120);
+      const minAllowed = Math.max(map.getMinZoom(), gestureStartZoom - 3);
+      const maxAllowed = Math.min(map.getMaxZoom(), gestureStartZoom + 3);
+
+      const targetZoom = Math.min(maxAllowed, Math.max(minAllowed, gestureStartZoom + deltaLevels));
+
+      if (targetZoom !== currentZoom) {
+        const mouseLatLng = map.mouseEventToLatLng(e);
+        map.setZoomAround(mouseLatLng, targetZoom, { animate: true });
+      }
+    }, { capture: true, passive: false });
+  })(copMap);
+
   // Base layers
   const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CartoDB', subdomains: 'abcd', maxZoom: 20
