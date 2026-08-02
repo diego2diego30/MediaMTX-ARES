@@ -1437,11 +1437,14 @@ wss.on('connection', (ws) => {
           const colorVal = hexToArgbInt(data.color, 1.0);
           detailTags += `<color value="${colorVal}"/>`;
         }
+        if (data.destCallsign) {
+          detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
+        }
         
         const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail>${detailTags}</detail></event>`;
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
-          console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server.`);
+          console.log(`[CoT PUSH] Marker ${callsign} (${uid}) sent to TAK Server${data.destCallsign ? ' for ' + data.destCallsign : ''}.`);
         }
         broadcast([{ uid, type: cotType, lat, lon, callsign }]);
       } else if (data.cmd === 'push_shape_cot') {
@@ -1475,11 +1478,15 @@ wss.on('connection', (ws) => {
         
         detailTags += `<strokeColor value="${strokeColorVal}"/><fillColor value="${fillColorVal}"/><strokeWeight value="${strokeWeightVal}"/>`;
         
+        if (data.destCallsign) {
+          detailTags += `<marti><dest callsign="${data.destCallsign}"/></marti>`;
+        }
+        
         const cotXml = `<event version="2.0" uid="${uid}" type="${cotType}" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="h-g-i-g-o"><point lat="${lat}" lon="${lon}" hae="0" ce="10" le="10"/><detail><contact callsign="${callsign}"/><remarks>Drawn from ARES COP</remarks>${detailTags}</detail></event>`;
         
         if (takClient && !takClient.destroyed) {
           takClient.write(cotXml);
-          console.log(`[CoT PUSH] Shape ${callsign} (${uid}) sent to TAK Server.`);
+          console.log(`[CoT PUSH] Shape ${callsign} (${uid}) sent to TAK Server${data.destCallsign ? ' for ' + data.destCallsign : ''}.`);
         }
         // Broadcast back to clients so they know it was sent successfully
         broadcast([{ uid, type: cotType, lat, lon, callsign }]);

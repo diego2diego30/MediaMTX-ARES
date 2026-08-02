@@ -235,6 +235,58 @@ window.broadcastMarkerToTak = function(id) {
   }
 };
 
+window.sendMarkerToUser = function(id) {
+  const td = window.trackData[id];
+  const destSelect = document.getElementById(`dest-user-${id}`);
+  if (!td || !destSelect || !destSelect.value) return;
+  const destCallsign = destSelect.value;
+  
+  if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+    wsTelemetry.send(JSON.stringify({ 
+      cmd: 'push_marker_cot', 
+      uid: id, 
+      callsign: td.callsign || id, 
+      lat: td.lat, 
+      lon: td.lon,
+      destCallsign: destCallsign
+    }));
+    showTacticalBanner(`📤 SENT TO ${destCallsign}`);
+  }
+};
+
+window.sendShapeToUser = function(id) {
+  const td = window.trackData[id];
+  const destSelect = document.getElementById(`dest-user-${id}`);
+  if (!td || !destSelect || !destSelect.value) return;
+  const destCallsign = destSelect.value;
+  
+  // Re-push the same shape data but with destCallsign attached
+  // We need the original shape parameters from window.drawnShapes
+  const shapeInfo = window.drawnShapes && window.drawnShapes[id];
+  if (!shapeInfo) return;
+  
+  if (wsTelemetry && wsTelemetry.readyState === WebSocket.OPEN) {
+    const payload = {
+      cmd: 'push_shape_cot',
+      uid: id,
+      callsign: td.callsign || id,
+      lat: td.lat,
+      lon: td.lon,
+      shapeType: shapeInfo.shapeType,
+      destCallsign: destCallsign
+    };
+    if (shapeInfo.radius) payload.radius = shapeInfo.radius;
+    if (shapeInfo.vertices) payload.vertices = shapeInfo.vertices;
+    if (shapeInfo.layer && shapeInfo.layer.options) {
+      payload.color = shapeInfo.layer.options.color;
+      payload.opacity = shapeInfo.layer.options.fillOpacity;
+      payload.weight = shapeInfo.layer.options.weight;
+    }
+    wsTelemetry.send(JSON.stringify(payload));
+    showTacticalBanner(`📤 SENT TO ${destCallsign}`);
+  }
+};
+
 window.updateShapeStyle = function(id) {
   const colorEl = document.getElementById(`edit-color-${id}`);
   const opacityEl = document.getElementById(`edit-opacity-${id}`);
@@ -1188,9 +1240,18 @@ function processPointCot(cot) {
   }
   
   let popupHtml = buildPopup(cot.callsign, popupRows, id);
+  let opts = '<option value="">-- SELECT RECIPIENT --</option>';
+  Object.values(window.trackData || {}).forEach(t => {
+    if (!t.isShape && t.type !== 'MARKER' && t.type !== 'ROUTE') {
+      opts += `<option value="${t.callsign}">${t.callsign}</option>`;
+    }
+  });
+
   popupHtml += `
     <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
       <button onclick="window.broadcastMarkerToTak('${id}')" style="background:var(--green-mid);color:#000;border:none;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 RE-BROADCAST TO TAK</button>
+      <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
+      <button onclick="window.sendMarkerToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
       <button onclick="window.deleteCopMarker('${id}')" style="background:#ff4444;color:#fff;border:none;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">🗑️ DELETE MARKER</button>
     </div>
   `;
@@ -1324,6 +1385,22 @@ function processShapeCot(cot) {
   }
 
   if (layer) {
+    let opts = '<option value="">-- SELECT RECIPIENT --</option>';
+    Object.values(window.trackData || {}).forEach(t => {
+      if (!t.isShape && t.type !== 'MARKER' && t.type !== 'ROUTE') {
+        opts += `<option value="${t.callsign}">${t.callsign}</option>`;
+      }
+    });
+
+    const existingPopupHtml = layer.getPopup().getContent();
+    const newPopupHtml = existingPopupHtml + `
+      <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+        <select id="dest-user-${id}" style="width:100%; padding:4px; background:#000; color:var(--green-bright); border:1px solid var(--green-mid);">${opts}</select>
+        <button onclick="window.sendShapeToUser('${id}')" style="background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📤 SEND TO USER</button>
+      </div>
+    `;
+    layer.bindPopup(newPopupHtml);
+
     layer.addTo(copMap);
     shapeOverlays[id] = layer;
     window.trackData[id] = { id, callsign: label, lat: cot.lat, lon: cot.lon, type: trackType, stale: cot.stale, isShape: true };
