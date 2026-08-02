@@ -881,7 +881,7 @@ klvSocket.on('message', (msg) => {
          // We do this OUTSIDE the takClient check so it works even if TAK Server disconnects.
          const cotUid = `mtx-uas-${streamId}`;
          const cotCallsign = `MTX-${streamId.toUpperCase()}`;
-         cotCache.set(cotUid, {
+          cotCache.set(cotUid, {
            uid: cotUid,
            type: 'a-f-A-M-F-Q',
            lat: parseFloat(lat.toFixed(6)),
@@ -889,7 +889,12 @@ klvSocket.on('message', (msg) => {
            alt: alt ? parseFloat(alt.toFixed(1)) : 0,
            hdg: hdg ? parseFloat(hdg.toFixed(1)) : 0,
            callsign: cotCallsign,
-           stale: new Date(Date.now() + 60000).toISOString()
+           stale: new Date(Date.now() + 60000).toISOString(),
+           sensor: {
+             azimuth: parseFloat(sensorAz.toFixed(1)),
+             fov: liveFov,
+             range: liveRange
+           }
          });
       }
     } catch(e) { console.warn('[KLV Parse Error]', e.message); }
@@ -1267,12 +1272,22 @@ function broadcastVideoAliasCots() {
 
           let lat = flightState.lat || 34.665;
           let lon = flightState.lon || -77.55;
+          let sensorAz = 0, sensorFov = 60, sensorRange = 500;
+          
           if (copLocation && copLocation.hasRealLocation) {
             lat = copLocation.lat;
             lon = copLocation.lon;
           }
           const uasCot = cotCache.get(`mtx-uas-${name}`);
-          if (uasCot && uasCot.lat !== undefined) { lat = uasCot.lat; lon = uasCot.lon; }
+          if (uasCot && uasCot.lat !== undefined) { 
+            lat = uasCot.lat; 
+            lon = uasCot.lon; 
+            if (uasCot.sensor) {
+              sensorAz = uasCot.sensor.azimuth ?? 0;
+              sensorFov = uasCot.sensor.fov ?? 60;
+              sensorRange = uasCot.sensor.range ?? 500;
+            }
+          }
 
           const videoCoT = `<event version="2.0" uid="${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
 <point lat="${lat}" lon="${lon}" hae="50" ce="10" le="10"/>
@@ -1283,7 +1298,7 @@ function broadcastVideoAliasCots() {
     <ConnectionEntry networkTimeout="12000" uid="${uid}" path="/${name}" protocol="rtsp" address="${publicHost}" port="${rtspPort}" roverPort="-1" rtspReliable="0" ignoreEmbeddedKlv="false" alias="${callsign}"/>
     <latency_mode>live</latency_mode>
   </__video>
-  <sensor azimuth="0" fov="60" range="500" vfov="45" model="MediaMTX-Stream"/>
+  <sensor azimuth="${sensorAz}" fov="${sensorFov}" range="${sensorRange}" vfov="45" model="MediaMTX-Stream"/>
   <remarks>ARES MediaMTX Video Feed (${name})</remarks>
 </detail>
 </event>`;
