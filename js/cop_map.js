@@ -16,6 +16,40 @@ function removeFovOverlay(id) {
   }
 }
 window.trackData = {};
+
+// ── Lock-On Target ────────────────────────────────────────────────
+let lockTarget = null; // marker ID currently locked
+
+window.lockOnMarker = function(id) {
+  lockTarget = id;
+  const td = window.trackData[id];
+  const label = td ? td.callsign : id;
+  if (td) copMap.panTo([td.lat, td.lon], { animate: true });
+  showTacticalBanner('🔒 LOCKED ON: ' + label);
+  // Update all open popup lock buttons to reflect new state
+  document.querySelectorAll('.lock-on-btn').forEach(btn => {
+    if (btn.dataset.id === id) {
+      btn.textContent = '🔓 UNLOCK';
+      btn.style.background = '#ff9900';
+      btn.onclick = () => window.unlockTarget();
+    } else {
+      btn.textContent = '🔒 LOCK ON';
+      btn.style.background = 'var(--green-dim)';
+      btn.onclick = () => window.lockOnMarker(btn.dataset.id);
+    }
+  });
+};
+
+window.unlockTarget = function() {
+  const label = lockTarget && window.trackData[lockTarget] ? window.trackData[lockTarget].callsign : lockTarget;
+  lockTarget = null;
+  showTacticalBanner('🔓 UNLOCKED — free camera');
+  document.querySelectorAll('.lock-on-btn').forEach(btn => {
+    btn.textContent = '🔒 LOCK ON';
+    btn.style.background = 'var(--green-dim)';
+    btn.onclick = () => window.lockOnMarker(btn.dataset.id);
+  });
+};
 let wsTelemetry;
 let wsReconnectTimer;
 let chatUnread = 0;
@@ -104,10 +138,20 @@ function shapeStyle(cot) {
 }
 
 // ── Popup builder ──────────────────────────────────────────────────
-function buildPopup(title, rows) {
+function buildPopup(title, rows, markerId) {
   const inner = rows.map(([k, v]) => `<strong style="color:#fff">${k}:</strong> ${v}`).join('<br>');
+  const isLocked = markerId && lockTarget === markerId;
+  const lockBtn = markerId ? `
+    <button
+      class="lock-on-btn"
+      data-id="${markerId}"
+      onclick="${isLocked ? 'window.unlockTarget()' : `window.lockOnMarker('${markerId}')`}"
+      style="margin-top:6px;width:100%;padding:5px 8px;border:none;border-radius:2px;cursor:pointer;font-weight:bold;font-family:var(--font-mono);background:${isLocked ? '#ff9900' : 'var(--green-dim)'};color:#fff;">
+      ${isLocked ? '🔓 UNLOCK' : '🔒 LOCK ON'}
+    </button>` : '';
   return `<div style="background:rgba(0,0,0,0.85);padding:6px 8px;border-radius:4px;line-height:1.6;border:1px solid var(--green-bright)">
     <strong style="color:var(--green-bright);font-size:13px;text-shadow:0 0 5px var(--green-bright)">${title}</strong><br>${inner}
+    ${lockBtn}
   </div>`;
 }
 
@@ -877,8 +921,10 @@ function processKlvData(data) {
     fovOverlays[id].setLatLngs(wedge);
   }
 
-  markers[id].bindPopup(buildPopup(callsign, [['LAT', data.lat], ['LON', data.lon], ['ALT', `${data.alt} m`], ['AZ', `${az}°`], ['FOV', `${fov}°`], ['RANGE', `${rng} m`]]) +
+  markers[id].bindPopup(buildPopup(callsign, [['LAT', data.lat], ['LON', data.lon], ['ALT', `${data.alt} m`], ['AZ', `${az}°`], ['FOV', `${fov}°`], ['RANGE', `${rng} m`]], id) +
   `<button onclick="window.broadcastDroneToTak('${id}', '${callsign}', ${data.lat}, ${data.lon}, ${data.alt || 0})" style="margin-top:8px;background:var(--green-mid);color:#000;border:none;padding:6px 10px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 BROADCAST DRONE FEED TO TAK</button>`);
+  // Pan map if this drone is the locked target
+  if (lockTarget === id) copMap.panTo(latlng, { animate: false });
   if (Object.keys(markers).length === 1) copMap.panTo(latlng, { animate: true });
   window.trackData[id] = { id, callsign, lat: data.lat, lon: data.lon, type: 'UAS FEED' };
 }
@@ -1063,7 +1109,7 @@ function processPointCot(cot) {
     popupRows.push(['ATTACHMENT', `<a href="${url}" target="_blank" style="color:var(--green-bright);font-weight:bold;text-decoration:underline;">📎 ${name}</a>`]);
   }
   
-  let popupHtml = buildPopup(cot.callsign, popupRows);
+  let popupHtml = buildPopup(cot.callsign, popupRows, id);
   popupHtml += `
     <div style="margin-top:8px; border-top:1px solid var(--green-dim); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
       <button onclick="window.broadcastMarkerToTak('${id}')" style="background:var(--green-mid);color:#000;border:none;padding:5px 8px;cursor:pointer;font-weight:bold;border-radius:2px;width:100%;">📡 RE-BROADCAST TO TAK</button>
@@ -1072,7 +1118,10 @@ function processPointCot(cot) {
   `;
   
   markers[id].bindPopup(popupHtml);
-  if (Object.keys(markers).length === 1 && Object.keys(shapeOverlays).length === 0) {
+  // Pan map if this marker is the locked target
+  if (lockTarget === id) {
+    copMap.panTo(latlng, { animate: false });
+  } else if (Object.keys(markers).length === 1 && Object.keys(shapeOverlays).length === 0) {
     copMap.panTo(latlng, { animate: true });
   }
   let trackType = 'GROUND UNIT';
@@ -1213,8 +1262,9 @@ function processEmergencyCot(cot) {
     copMap.panTo(latlng, { animate: true }); // Only pan on first detection
   } else {
     markers[id].setLatLng(latlng);
+    if (lockTarget === id) copMap.panTo(latlng, { animate: false });
   }
-  markers[id].bindPopup(buildPopup('⚠ EMERGENCY', [['CALLSIGN', baseCallsign], ['STATUS', cot.callsign], ['LAT', cot.lat.toFixed(5)], ['LON', cot.lon.toFixed(5)]]));
+  markers[id].bindPopup(buildPopup('⚠ EMERGENCY', [['CALLSIGN', baseCallsign], ['STATUS', cot.callsign], ['LAT', cot.lat.toFixed(5)], ['LON', cot.lon.toFixed(5)]], id));
   window.trackData[id] = { id, callsign: baseCallsign, lat: cot.lat, lon: cot.lon, type: 'EMERGENCY', stale: cot.stale };
   pruneStaleMarkers();
 }
