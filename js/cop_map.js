@@ -829,6 +829,19 @@ function initCopMap() {
       }
       titleEl.textContent = `MARKER: ${typeLabel.toUpperCase()}`;
     }
+
+    // Update actual marker layer icon on the map WITHOUT closing the popup (setIcon destroys the DOM node)
+    if (window.drawnShapes && window.drawnShapes[id] && window.drawnShapes[id].layer) {
+      const markerEl = window.drawnShapes[id].layer.getElement();
+      if (markerEl) {
+        markerEl.innerHTML = iconHtml;
+        // Ensure the container is sized correctly for the new icon
+        markerEl.style.width = '30px';
+        markerEl.style.height = '30px';
+        markerEl.style.marginLeft = '-15px'; // iconAnchor X
+        markerEl.style.marginTop = '-15px';  // iconAnchor Y
+      }
+    }
   };
 
 
@@ -1200,21 +1213,21 @@ function cotToSidc(cotType) {
   const dm = { G:'G', A:'A', S:'S', U:'U', F:'F', X:'X' }[parts[2]];
   if (!af || !dm) return null;
   
-  if (dm === 'A' && parts.includes('U')) return `S${af}APMFQ--------`;
+  if (dm === 'A' && parts.includes('U')) return `S${af}APMFQ--------`; // 7 chars + 8 dashes = 15
   
   if (parts.length > 3) {
     const last = parts[parts.length - 1].toUpperCase();
-    if (last === 'I') return `S${af}${dm}PUCI-------`;
-    if (last === 'A' && dm === 'G') return `S${af}${dm}PUCA-------`;
-    if (last === 'M' && dm === 'G') return `S${af}${dm}PUCM-------`;
-    if (last === 'MH' || last === 'CH' || (dm === 'A' && last === 'H')) return `S${af}${dm}PMH--------`;
-    if (last === 'MF' || (dm === 'A' && last === 'F')) return `S${af}${dm}PMF--------`;
-    if (last === 'HQ') return `S${af}${dm}PHQ--------`;
-    if (last === 'S') return `S${af}${dm}PUCS-------`;
-    if (last === 'ES') return `S${af}${dm}PES--------`;
+    if (last === 'I') return `S${af}${dm}PUCI--------`; // 7 + 8 = 15
+    if (last === 'A' && dm === 'G') return `S${af}${dm}PUCA--------`; // 7 + 8 = 15
+    if (last === 'M' && dm === 'G') return `S${af}${dm}PUCM--------`; // 7 + 8 = 15
+    if (last === 'MH' || last === 'CH' || (dm === 'A' && last === 'H')) return `S${af}${dm}PMH---------`; // 6 + 9 = 15
+    if (last === 'MF' || (dm === 'A' && last === 'F')) return `S${af}${dm}PMF---------`; // 6 + 9 = 15
+    if (last === 'HQ') return `S${af}${dm}PHQ---------`; // 6 + 9 = 15
+    if (last === 'S') return `S${af}${dm}PUCS--------`; // 7 + 8 = 15
+    if (last === 'ES') return `S${af}${dm}PES---------`; // 6 + 9 = 15
   }
   
-  return `S${af}${dm}P-------`;
+  return `S${af}${dm}P-----------`; // 4 chars + 11 dashes = 15
 }
 
 function getTakIcon(cot) {
