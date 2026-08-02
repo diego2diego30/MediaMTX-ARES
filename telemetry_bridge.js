@@ -1472,24 +1472,31 @@ function broadcastVideoAliasCots() {
 
           const rtspUrl = `rtsp://${publicHost}:${rtspPort}/${name}`;
 
-          let lat = flightState.lat || 34.665;
-          let lon = flightState.lon || -77.55;
+          // Position must come from real telemetry only. Never fall back to the
+          // simulator's flightState — it orbits a fixed default unrelated to this
+          // feed, and that fabricated position used to be cached and replayed to
+          // every COP client on connect, plotting live feeds in the wrong place.
+          let lat, lon;
           let sensorAz = 0, sensorFov = 60, sensorRange = 500;
-          
-          if (copLocation && copLocation.hasRealLocation) {
-            lat = copLocation.lat;
-            lon = copLocation.lon;
-          }
+
           const uasCot = cotCache.get(`mtx-uas-${name}`);
-          if (uasCot && uasCot.lat !== undefined) { 
-            lat = uasCot.lat; 
-            lon = uasCot.lon; 
+          if (uasCot && uasCot.lat !== undefined) {
+            lat = uasCot.lat;
+            lon = uasCot.lon;
             if (uasCot.sensor) {
               sensorAz = uasCot.sensor.azimuth ?? 0;
               sensorFov = uasCot.sensor.fov ?? 60;
               sensorRange = uasCot.sensor.range ?? 500;
             }
+          } else if (copLocation && copLocation.hasRealLocation) {
+            lat = copLocation.lat;
+            lon = copLocation.lon;
           }
+
+          // No KLV telemetry and no operator location yet — skip this feed rather
+          // than guessing. COP renders drones directly from the live KLV stream,
+          // and the KLV→CoT push already registers the feed with TAK every 3s.
+          if (lat === undefined || lon === undefined) return;
 
           const videoCoT = `<event version="2.0" uid="${uid}" type="b-i-v" time="${now.toISOString()}" start="${now.toISOString()}" stale="${stale.toISOString()}" how="m-g">
 <point lat="${lat}" lon="${lon}" hae="50" ce="10" le="10"/>
