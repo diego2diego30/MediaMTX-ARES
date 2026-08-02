@@ -34,13 +34,6 @@ services:
     networks:
       - default
       - takserver_net
-
-networks:
-  default:
-  takserver_net:
-    external: true
-    name: takserver_default
-
   # UAS Telemetry Bridge (Node.js + FFmpeg KLV Extraction)
   telemetry:
     build:
@@ -83,5 +76,11 @@ networks:
     command: tunnel --url http://gui:80
     depends_on:
       - gui
+
+networks:
+  default:
+  takserver_net:
+    external: true
+    name: takserver_default
 
 
