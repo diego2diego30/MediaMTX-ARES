@@ -30,6 +30,16 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "takserver:host-gateway"
+    networks:
+      - default
+      - takserver_net
+
+networks:
+  default:
+  takserver_net:
+    external: true
+    name: takserver_default
 
   # UAS Telemetry Bridge (Node.js + FFmpeg KLV Extraction)
   telemetry:
