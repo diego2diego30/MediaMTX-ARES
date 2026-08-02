@@ -1907,26 +1907,77 @@ function pruneStaleMarkers() {
 
 // ── Attachment media preview ────────────────────────────────────────
 // Shared by geochat messages and object (marker/shape) popups: renders an
-// inline <img>/<video> for recognized media URLs, or null for anything else
-// so callers can fall back to a plain download link.
+// inline <img>/<video>/<embed> for recognized media URLs plus an EXPAND/
+// NEW WINDOW button row, or null for anything else so callers can fall
+// back to a plain download link.
 function buildAttachmentMediaHtml(url, style) {
   if (!url) return null;
+  let mediaTag = null;
+
   if (url.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)$/i)) {
-    return `<a href="${url}" target="_blank"><img src="${url}" style="${style}" /></a>`;
-  }
-  if (url.match(/\.(mp4|webm|mov|m4v|ogg|ogv)$/i)) {
-    return `<video src="${url}" controls preload="metadata" style="${style}"></video>`;
-  }
-  if (url.match(/\.pdf$/i)) {
+    mediaTag = `<img src="${url}" style="${style}" />`;
+  } else if (url.match(/\.(mp4|webm|mov|m4v|ogg|ogv)$/i)) {
+    mediaTag = `<video src="${url}" controls preload="metadata" style="${style}"></video>`;
+  } else if (url.match(/\.pdf$/i)) {
     // A PDF page needs real height to be legible, unlike the small thumbnail boxes
     // image/video previews use — keep the caller's max-width for layout consistency
     // but give it a fixed taller height instead of reusing their max-height.
     const widthMatch = style.match(/max-width:\s*([\d.]+px|100%)/i);
     const maxWidth = widthMatch ? widthMatch[1] : '100%';
-    return `<a href="${url}" target="_blank"><embed src="${url}" type="application/pdf" style="width:100%;max-width:${maxWidth};height:220px;border:1px solid var(--green-dim);border-radius:4px;margin-top:4px;display:block;" /></a>`;
+    mediaTag = `<embed src="${url}" type="application/pdf" style="width:100%;max-width:${maxWidth};height:220px;border:1px solid var(--green-dim);border-radius:4px;margin-top:4px;display:block;" />`;
   }
-  return null;
+
+  if (!mediaTag) return null;
+
+  const buttonRowStyle = 'display:flex;gap:4px;margin-top:3px;max-width:' + (style.match(/max-width:\s*([\d.]+px|100%)/i) || [, '100%'])[1] + ';';
+  const btnStyle = 'flex:1;background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:3px 4px;font-size:10px;font-weight:bold;cursor:pointer;border-radius:2px;text-align:center;text-decoration:none;box-sizing:border-box;';
+  return `${mediaTag}<div style="${buttonRowStyle}">
+    <button onclick="window.openAttachmentLightbox('${url}')" style="${btnStyle}">⛶ EXPAND</button>
+    <a href="${url}" target="_blank" style="${btnStyle}">↗ NEW WINDOW</a>
+  </div>`;
 }
+
+// ── Attachment lightbox ──────────────────────────────────────────────
+// Full-viewport focus-mode overlay for any attachment preview's EXPAND button.
+window.openAttachmentLightbox = function(url) {
+  let overlay = document.getElementById('attachment-lightbox-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'attachment-lightbox-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200000;display:flex;align-items:center;justify-content:center;padding:30px;box-sizing:border-box;';
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) window.closeAttachmentLightbox(); });
+    document.body.appendChild(overlay);
+  }
+
+  let mediaHtml;
+  if (url.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)$/i)) {
+    mediaHtml = `<img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;" />`;
+  } else if (url.match(/\.(mp4|webm|mov|m4v|ogg|ogv)$/i)) {
+    mediaHtml = `<video src="${url}" controls autoplay style="max-width:100%;max-height:100%;"></video>`;
+  } else if (url.match(/\.pdf$/i)) {
+    mediaHtml = `<embed src="${url}" type="application/pdf" style="width:90vw;height:90vh;border-radius:4px;" />`;
+  } else {
+    mediaHtml = `<div style="color:var(--green-bright);font-family:var(--font-mono);">Cannot preview this file type.</div>`;
+  }
+
+  overlay.innerHTML = `
+    <button onclick="window.closeAttachmentLightbox()" style="position:absolute;top:16px;right:16px;background:#ff4444;color:#fff;border:none;width:36px;height:36px;border-radius:50%;font-weight:bold;cursor:pointer;font-size:16px;">✕</button>
+    <a href="${url}" target="_blank" style="position:absolute;top:16px;right:64px;background:#0f2a18;color:var(--green-bright);border:1px solid var(--green-mid);padding:8px 12px;font-size:12px;font-weight:bold;text-decoration:none;border-radius:4px;">↗ NEW WINDOW</a>
+    <div style="max-width:95vw;max-height:95vh;display:flex;align-items:center;justify-content:center;">${mediaHtml}</div>
+  `;
+  overlay.style.display = 'flex';
+  document.addEventListener('keydown', window._attachmentLightboxEscHandler);
+};
+
+window._attachmentLightboxEscHandler = function(e) {
+  if (e.key === 'Escape') window.closeAttachmentLightbox();
+};
+
+window.closeAttachmentLightbox = function() {
+  const overlay = document.getElementById('attachment-lightbox-overlay');
+  if (overlay) overlay.style.display = 'none';
+  document.removeEventListener('keydown', window._attachmentLightboxEscHandler);
+};
 
 function renderAttachStatus(el, name, url) {
   if (!el) return;
