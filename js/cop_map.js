@@ -371,7 +371,7 @@ window.updateShapeStyle = function(id) {
 
 // ── Map Init ──────────────────────────────────────────────────────
 function initCopMap() {
-  copMap = L.map('cop-map-container', { zoomControl: false }).setView([34.665, -77.55], 13);
+  copMap = L.map('cop-map-container', { zoomControl: false }).setView([38.9784, -76.4922], 13);
   L.control.zoom({ position: 'bottomleft' }).addTo(copMap);
 
   // Base layers
