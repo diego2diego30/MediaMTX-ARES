@@ -77,18 +77,13 @@ cp files/takserver.p12 files/ares-werx.com.p12 2>/dev/null || true
 echo "-> [4/9] Generating Admin Client Certificate..."
 STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client admin || true
 
-# ── 6. Rebuild all .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read) ──
+# ── 6. Rebuild all .p12 with AES-256-CBC (makeCert.sh/makeRootCa.sh use RC2-40-CBC which
+#        Java 17+ AND OpenSSL 3.x's default provider (Ubuntu 24.04) both refuse to read) ──
 echo "-> [5/9] Rebuilding all .p12 with AES-256-CBC..."
 cd files
-for p12name in takserver admin truststore-root; do
-  # Find the key file (root CA uses ca.key, others use <name>.key)
-  keyfile="${p12name}.key"
-  [ "$p12name" = "truststore-root" ] && keyfile="ca.key"
+for p12name in takserver admin; do
   pemfile="${p12name}.pem"
-  [ "$p12name" = "truststore-root" ] && pemfile="ca.pem"
-  [ "$p12name" = "admin" ] && pemfile="admin.pem"
-  [ "$p12name" = "admin" ] && keyfile="admin.key"
-  # Extract password
+  keyfile="${p12name}.key"
   pass="atakatak"
   if [ -f "$pemfile" ] && [ -f "$keyfile" ]; then
     echo "   → $p12name.p12 → AES-256-CBC"
@@ -97,6 +92,22 @@ for p12name in takserver admin truststore-root; do
     echo "   ⚠️  Skipping $p12name (missing pem or key)"
   fi
 done
+
+# truststore-root.p12 comes straight out of makeRootCa.sh as an RC2-40-CBC
+# PKCS12 — there is no separate ca.pem/ca.key at a fixed, predictable path to
+# rebuild it from (unlike takserver/admin above). Re-encrypt it in place instead:
+# read the existing p12 with the legacy provider (required for RC2-40-CBC on
+# OpenSSL 3.x), then re-export the same cert+key as AES-256-CBC.
+pass="atakatak"
+if [ -f "truststore-root.p12" ]; then
+  echo "   → truststore-root.p12 → AES-256-CBC"
+  openssl pkcs12 -legacy -in truststore-root.p12 -nokeys -passin pass:$pass -out /tmp/ares-ca-root.pem
+  openssl pkcs12 -legacy -in truststore-root.p12 -nocerts -nodes -passin pass:$pass -out /tmp/ares-ca-root.key
+  openssl pkcs12 -export -in /tmp/ares-ca-root.pem -inkey /tmp/ares-ca-root.key -out truststore-root.p12 -name truststore-root -passin pass:$pass -passout pass:$pass -keypbe AES-256-CBC -certpbe AES-256-CBC
+  rm -f /tmp/ares-ca-root.pem /tmp/ares-ca-root.key
+else
+  echo "   ⚠️  Skipping truststore-root (truststore-root.p12 not found)"
+fi
 cd "$TAK_CERT_DIR"
 
 # Export admin client PEM and key for telemetry bridge (from rebuilt p12)
@@ -108,10 +119,10 @@ chmod 644 files/admin.pem
 
 # ── 7. Export Root CA as PEM (for iOS + bridge) ──
 echo "-> [6/9] Exporting Root CA as PEM..."
-openssl pkcs12 -in files/truststore-root.p12 -nokeys \
+openssl pkcs12 -legacy -in files/truststore-root.p12 -nokeys \
   -out "$ARES_DIR/ares-root.crt" -passin pass:atakatak
 
-openssl pkcs12 -in files/truststore-root.p12 -nokeys \
+openssl pkcs12 -legacy -in files/truststore-root.p12 -nokeys \
   -out "$ARES_DIR/cert/truststore-root.pem" -passin pass:atakatak
 
 # ── 8. Copy client cert + key for the telemetry bridge ──
