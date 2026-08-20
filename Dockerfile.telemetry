@@ -1,7 +1,10 @@
 FROM node:22-alpine
 
-# Install FFmpeg for stream extraction + docker-cli for cert generation + openssl for fingerprint extraction
-RUN apk add --no-cache ffmpeg docker-cli openssl
+# ffmpeg: stream extraction. docker-cli: cert generation (docker exec/cp into takserver).
+# openssl: fingerprint extraction + p12 re-encryption. bash + zip: required by
+# bin/generate-user-zip.sh, which the bridge now shells out to (see D11/D7 — it
+# used to duplicate this logic inline in JS with no bash/zip dependency at all).
+RUN apk add --no-cache ffmpeg docker-cli openssl bash zip
 
 WORKDIR /app
 
@@ -11,6 +14,8 @@ RUN npm install --production
 
 # Copy the bridge application
 COPY telemetry_bridge.js .
+COPY lib/ /app/lib/
+COPY bin/ /app/bin/
 
 # Copy certificates for TAK TLS connections
 COPY cert/ /app/cert/

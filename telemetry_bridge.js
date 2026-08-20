@@ -1,5 +1,5 @@
 const WebSocket = require('ws');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -66,50 +66,8 @@ function saveSavedObjects() { fs.writeFileSync(savedObjectsFile, JSON.stringify(
 // a guessable public URL. A download link is an HMAC over (username, expiry, serial).
 // Regenerating a user's package bumps their serial, which revokes every link already
 // handed out for them — that is the revoke path.
-const zipSecretFile = path.join(configDir, 'zip-token-secret');
-if (!fs.existsSync(zipSecretFile)) {
-  fs.writeFileSync(zipSecretFile, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
-}
-const zipTokenSecret = Buffer.from(fs.readFileSync(zipSecretFile, 'utf8').trim(), 'hex');
-
-const zipSerialsFile = path.join(configDir, 'zip_tokens.json');
-if (!fs.existsSync(zipSerialsFile)) fs.writeFileSync(zipSerialsFile, JSON.stringify({}, null, 2));
-let zipSerialsDB = JSON.parse(fs.readFileSync(zipSerialsFile));
-function saveZipSerials() { fs.writeFileSync(zipSerialsFile, JSON.stringify(zipSerialsDB, null, 2)); }
-
-const ZIP_TOKEN_TTL = parseInt(process.env.ZIP_TOKEN_TTL_SECONDS, 10) || 1800;
-
-function zipTokenSignature(username, exp, serial) {
-  return crypto.createHmac('sha256', zipTokenSecret)
-    .update(`${username}|${exp}|${serial}`)
-    .digest('base64url');
-}
-
-function issueZipToken(username) {
-  const serial = zipSerialsDB[username] || 0;
-  const exp = Math.floor(Date.now() / 1000) + ZIP_TOKEN_TTL;
-  return `${exp}.${serial}.${zipTokenSignature(username, exp, serial)}`;
-}
-
-function revokeZipTokens(username) {
-  zipSerialsDB[username] = (zipSerialsDB[username] || 0) + 1;
-  saveZipSerials();
-}
-
-function verifyZipToken(username, token) {
-  if (typeof token !== 'string') return false;
-  const parts = token.split('.');
-  if (parts.length !== 3) return false;
-  const exp = parseInt(parts[0], 10);
-  const serial = parseInt(parts[1], 10);
-  if (!Number.isFinite(exp) || !Number.isFinite(serial)) return false;
-  if (exp < Math.floor(Date.now() / 1000)) return false;
-  if (serial !== (zipSerialsDB[username] || 0)) return false;
-  const expected = Buffer.from(zipTokenSignature(username, exp, serial));
-  const given = Buffer.from(parts[2]);
-  if (expected.length !== given.length) return false;
-  return crypto.timingSafeEqual(expected, given);
-}
+const createZipTokenStore = require('./lib/zip-tokens.js');
+const { issueZipToken, revokeZipTokens, verifyZipToken } = createZipTokenStore(configDir);
 
 const sessions = {};
 function getSession(req) {
@@ -688,83 +646,44 @@ const httpServer = http.createServer((req, res) => {
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
     req.on('end', () => {
-      (async () => {
-        try {
-          const { username, callsign } = JSON.parse(body);
-          if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
-            res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid username' }));
-            return;
-          }
-          const safeCallsign = callsign || username;
+      let username, callsign;
+      try {
+        ({ username, callsign } = JSON.parse(body));
+      } catch (e) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
+      if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid username' }));
+        return;
+      }
+      const safeCallsign = callsign || username;
+      const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
 
-          const { exec } = require('child_process');
-          const util = require('util');
-          const execP = util.promisify(exec);
-
-          // Step 1: Generate client cert with correct env vars for cert-metadata.sh
-          await execP(`docker exec takserver bash -c 'cd /opt/tak/certs && STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client ${username}'`);
-
-          // Step 2: Extract fingerprint and register in UserAuthenticationFile.xml
-          const fpResult = await execP(`docker exec takserver bash -c 'openssl x509 -in /opt/tak/certs/files/${username}.pem -noout -fingerprint -sha256'`);
-          const fingerprint = fpResult.stdout.trim().replace(/^sha256 Fingerprint=/i, '');
-          // Read UserAuthenticationFile via stdout, modify, write back via stdin
-          const readResult = await execP(`docker exec takserver cat /opt/tak/UserAuthenticationFile.xml`);
-          let authContent = readResult.stdout;
-          // Remove any existing entry for this user (multiple possible formats)
-          authContent = authContent.replace(new RegExp(`<User[^>]*identifier="${username}"[^>]*>[\\s\\S]*?</User>\\n?`), '');
-          // Insert new entry before closing root tag
-          const userEntry = `  <User identifier="${username}" fingerprint="${fingerprint}">\n    <groupList>__ANON__</groupList>\n  </User>\n`;
-          authContent = authContent.replace('</UserAuthenticationFile>', userEntry + '</UserAuthenticationFile>');
-          // Write back via stdin
-          const writeChild = exec(`docker exec -i takserver sh -c 'cat > /opt/tak/UserAuthenticationFile.xml'`);
-          writeChild.stdin.write(authContent);
-          writeChild.stdin.end();
-          await new Promise(resolve => writeChild.on('close', resolve));
-          console.log(`[User ZIP] Fingerprint registered for ${username}: ${fingerprint}`);
-
-          // Step 3: Rebuild user .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read)
-          await execP(`docker exec takserver bash -c 'cd /opt/tak/certs/files && openssl pkcs12 -export -in ${username}.pem -inkey ${username}.key -out ${username}.p12 -name ${username} -passin pass:atakatak -passout pass:atakatak -keypbe AES-256-CBC -certpbe AES-256-CBC'`);
-
-          // Step 4: Copy p12 files out
-          await execP(`docker cp takserver:/opt/tak/certs/files/${username}.p12 /tmp/${username}.p12`);
-          await execP(`docker cp takserver:/opt/tak/certs/files/truststore-root.p12 /tmp/truststore-root.p12`);
-
-          const userP12 = fs.readFileSync(`/tmp/${username}.p12`);
-          const caP12 = fs.readFileSync('/tmp/truststore-root.p12');
-
-          // Clean up temporary files
-          try { fs.unlinkSync(`/tmp/${username}.p12`); } catch(e){}
-          try { fs.unlinkSync('/tmp/truststore-root.p12'); } catch(e){}
-
-          const prefXml = `<?xml version='1.0' encoding='utf-8'?>\n<preferences>\n  <preference version="1" name="cot_streams">\n    <entry key="count" class="class java.lang.Integer">1</entry>\n    <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>\n    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n    <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>\n  </preference>\n  <preference version="1" name="com.atakmap.app_preferences">\n    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n    <entry key="locationCallsign" class="class java.lang.String">${safeCallsign}</entry>\n    <entry key="caLocation" class="class java.lang.String">certs/truststore-root.p12</entry>\n    <entry key="caPassword" class="class java.lang.String">atakatak</entry>\n    <entry key="certificateLocation" class="class java.lang.String">certs/${username}.p12</entry>\n    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>\n  </preference>\n</preferences>`;
-
-          const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
-
-          const uuid = `${username}-${Date.now()}`;
-          const manifestXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<MissionPackageManifest version="2">\n  <Configuration>\n    <Parameter name="uid" value="${uuid}"/>\n    <Parameter name="name" value="ARES-WERX ${username}"/>\n    <Parameter name="onReceiveDelete" value="true"/>\n  </Configuration>\n  <Contents>\n    <Content ignore="false" zipEntry="certs/${username}.p12">\n      <Parameter name="uid" value="${username}-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/truststore-root.p12">\n      <Parameter name="uid" value="truststore-root-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/${username}.pref">\n      <Parameter name="uid" value="${username}-pref"/>\n      <Parameter name="mimeType" value="application/x-tak-config"/>\n    </Content>\n  </Contents>\n</MissionPackageManifest>`;
-
-          const zip = new AdmZip();
-          zip.addFile(`certs/${username}.p12`, userP12);
-          zip.addFile('certs/truststore-root.p12', caP12);
-          zip.addFile(`certs/${username}.pref`, Buffer.from(prefXml, 'utf8'));
-          zip.addFile('MANIFEST/manifest.xml', Buffer.from(manifestXml, 'utf8'));
-
-          const zipPath = path.join(userZipsDir, `${username}.zip`);
-          zip.writeZip(zipPath);
-
-          // Any link handed out for this user's previous package is now void.
-          revokeZipTokens(username);
-          const zipUrl = `https://${publicHost}/user-zips/${username}.zip?t=${issueZipToken(username)}`;
-
-          console.log(`[User ZIP] Generated: ${zipPath}`);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, file: `${username}.zip`, url: zipUrl }));
-        } catch (e) {
-          console.error('[User ZIP Error]', e.message);
+      // Certificate + package generation lives in one place — bin/generate-user-zip.sh —
+      // so the Admin Hub and fix-certs.sh --reissue-all can't drift out of sync with
+      // each other. They used to duplicate this pipeline independently.
+      const scriptPath = path.join(__dirname, 'bin', 'generate-user-zip.sh');
+      execFile('bash', [scriptPath, username, safeCallsign], {
+        env: { ...process.env, PUBLIC_HOST: publicHost },
+        timeout: 60000,
+        maxBuffer: 4 * 1024 * 1024
+      }, (err, stdout, stderr) => {
+        if (err) {
+          console.error('[User ZIP Error]', stderr || err.message);
           res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
+          res.end(JSON.stringify({ error: 'Package generation failed — see server logs' }));
+          return;
         }
-      })();
+        console.log(stdout.trim());
+
+        // Any link handed out for this user's previous package is now void.
+        revokeZipTokens(username);
+        const zipUrl = `https://${publicHost}/user-zips/${username}.zip?t=${issueZipToken(username)}`;
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, file: `${username}.zip`, url: zipUrl }));
+      });
     });
     return;
   }

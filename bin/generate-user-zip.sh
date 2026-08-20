@@ -51,6 +51,20 @@ echo "[User ZIP] Step 3: Copying cert files..."
 docker cp "$TAK_CONTAINER:${CERT_FILES_DIR}/${USERNAME}.p12" "/tmp/${USERNAME}.p12"
 docker cp "$TAK_CONTAINER:${CERT_FILES_DIR}/truststore-root.p12" "/tmp/truststore-root.p12"
 
+# The CA truststore comes straight out of makeRootCa.sh in RC2-40-CBC. Unlike the
+# user .p12 above (rebuilt as AES-256-CBC in Step 2), nothing has re-encrypted this
+# copy — Java 17+ (ATAK/iTAK) and OpenSSL 3.x both refuse to read RC2-40-CBC. Detect
+# and fix it here so every package this script builds is actually importable.
+if ! openssl pkcs12 -in /tmp/truststore-root.p12 -nokeys -passin pass:atakatak -out /dev/null 2>/dev/null; then
+  echo "[User ZIP] truststore-root.p12 is legacy RC2-40-CBC — re-encrypting to AES-256-CBC..."
+  openssl pkcs12 -legacy -in /tmp/truststore-root.p12 -nokeys -passin pass:atakatak -out /tmp/ca-root.pem
+  openssl pkcs12 -legacy -in /tmp/truststore-root.p12 -nocerts -nodes -passin pass:atakatak -out /tmp/ca-root.key
+  openssl pkcs12 -export -in /tmp/ca-root.pem -inkey /tmp/ca-root.key -out /tmp/truststore-root.p12 \
+    -name truststore-root -passin pass:atakatak -passout pass:atakatak \
+    -keypbe AES-256-CBC -certpbe AES-256-CBC
+  rm -f /tmp/ca-root.pem /tmp/ca-root.key
+fi
+
 # Step 4: Create pref XML
 echo "[User ZIP] Step 4: Building pref file..."
 cat > "/tmp/${USERNAME}.pref" <<PREFEOF
@@ -60,7 +74,7 @@ cat > "/tmp/${USERNAME}.pref" <<PREFEOF
     <entry key="count" class="class java.lang.Integer">1</entry>
     <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>
     <entry key="enabled0" class="class java.lang.Boolean">true</entry>
-    <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>
+    <entry key="connectString0" class="class java.lang.String">${PUBLIC_HOST:-ares-werx.com}:8089:ssl</entry>
   </preference>
   <preference version="1" name="com.atakmap.app_preferences">
     <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
@@ -142,3 +156,4 @@ fi
 
 echo "[User ZIP] Done! Package saved to: ${USER_ZIPS_DIR}/${USERNAME}.zip"
 ls -lh "${USER_ZIPS_DIR}/${USERNAME}.zip"
+echo "RESULT_JSON: {\"success\":true,\"file\":\"${USERNAME}.zip\"}"

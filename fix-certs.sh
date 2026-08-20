@@ -9,6 +9,13 @@
 # ==============================================================================
 set -e
 
+REISSUE_ALL=0
+for arg in "$@"; do
+  case "$arg" in
+    --reissue-all) REISSUE_ALL=1 ;;
+  esac
+done
+
 echo "=================================================================="
 echo " 🔐 ARES-WERX TAK PKI Rebuild"
 echo "=================================================================="
@@ -55,6 +62,34 @@ fi
 echo "  ARES_DIR:     $ARES_DIR"
 echo "  TAK_CERT_DIR: $TAK_CERT_DIR"
 echo ""
+
+# ── 1b. Refuse to silently invalidate every package already handed out ──
+# Rebuilding the Root CA below signs a brand-new chain. Every user package in
+# user-zips/ was signed by the CA about to be deleted, so it will fail import
+# with the exact "certificate not trusted" error this script exists to fix —
+# unless it gets reissued against the new CA. Detect that risk before wiping
+# anything, not after.
+EXISTING_USER_ZIPS=()
+if [ -d "$ARES_DIR/user-zips" ]; then
+  while IFS= read -r -d '' f; do
+    EXISTING_USER_ZIPS+=("$(basename "$f" .zip)")
+  done < <(find "$ARES_DIR/user-zips" -maxdepth 1 -name '*.zip' -print0 2>/dev/null)
+fi
+
+if [ "${#EXISTING_USER_ZIPS[@]}" -gt 0 ] && [ "$REISSUE_ALL" -ne 1 ]; then
+  echo ""
+  echo "=================================================================="
+  echo "❌ REFUSING TO RUN: ${#EXISTING_USER_ZIPS[@]} previously issued user package(s) found:"
+  printf '     - %s\n' "${EXISTING_USER_ZIPS[@]}"
+  echo ""
+  echo "   Rebuilding the Root CA invalidates every one of these — they were"
+  echo "   signed by the CA this script is about to replace."
+  echo ""
+  echo "   Rerun with --reissue-all to rebuild the admin PKI AND reissue"
+  echo "   every user package listed above against the new CA."
+  echo "=================================================================="
+  exit 1
+fi
 
 cd "$TAK_CERT_DIR"
 
@@ -265,6 +300,37 @@ else
   echo "   Check manually:"
   echo "      openssl s_client -connect ares-werx.com:8089 -CAfile cert/truststore-root.pem"
   echo "=================================================================="
+fi
+
+# ── 13b. Reissue every previously issued user package against the new CA ──
+# Only after the chain above is confirmed live — reissuing against an
+# unverified server would just hand out packages with the same failure mode
+# this script exists to prevent.
+if [ "${#EXISTING_USER_ZIPS[@]}" -gt 0 ] && [ "$REISSUE_ALL" -eq 1 ]; then
+  if [ "$CHAIN_OK" != "1" ]; then
+    echo ""
+    echo "=================================================================="
+    echo "❌ Skipping user package reissue — the new Root CA chain could not"
+    echo "   be verified above. Fix that first, then rerun with --reissue-all."
+    echo "=================================================================="
+  else
+    echo ""
+    echo "-> Reissuing ${#EXISTING_USER_ZIPS[@]} user package(s) against the new Root CA..."
+    for uname in "${EXISTING_USER_ZIPS[@]}"; do
+      echo "   → $uname"
+      if PUBLIC_HOST="${PUBLIC_HOST:-ares-werx.com}" bash "$ARES_DIR/bin/generate-user-zip.sh" "$uname" >/tmp/reissue-"$uname".log 2>&1; then
+        TOKEN_URL=$(docker exec telemetry-bridge node bin/issue-zip-token.js "$uname" 2>/dev/null || true)
+        if [ -n "$TOKEN_URL" ]; then
+          echo "     ✅ $TOKEN_URL"
+        else
+          echo "     ⚠️  Package rebuilt but could not mint a download link (bridge container not up?)."
+          echo "         Regenerate from the Admin Hub instead."
+        fi
+      else
+        echo "     ❌ FAILED — see /tmp/reissue-$uname.log"
+      fi
+    done
+  fi
 fi
 
 # ── Done ──
