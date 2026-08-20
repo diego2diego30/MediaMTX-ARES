@@ -42,13 +42,46 @@ connectTilesDb('camp_lejeune.mbtiles');
 
 const configDir = path.join(__dirname, 'config');
 if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+
+// D10: passwords are stored as scrypt:<saltHex>:<hashHex>, never plaintext.
+// verifyPassword still accepts a bare stored string for backward compatibility
+// with accounts created before this change — the login handler below rehashes
+// on the first successful login against one of those, so the migration is
+// automatic and one-way (nothing ever reads a scrypt hash back into plaintext).
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64);
+  return `scrypt:${salt.toString('hex')}:${hash.toString('hex')}`;
+}
+function verifyPassword(password, stored) {
+  if (typeof stored !== 'string') return false;
+  if (stored.startsWith('scrypt:')) {
+    const [, saltHex, hashHex] = stored.split(':');
+    const expected = Buffer.from(hashHex, 'hex');
+    const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  }
+  return stored === password; // legacy plaintext account, pre-migration
+}
+
 const usersFile = path.join(configDir, 'users.json');
 if (!fs.existsSync(usersFile)) {
+  // Random per-install credentials instead of a hardcoded admin/password —
+  // printed once so there is exactly one place to find them.
+  const adminPass = crypto.randomBytes(9).toString('base64url');
+  const operatorPass = crypto.randomBytes(9).toString('base64url');
   const defaultUsers = [
-    { username: 'admin', password: 'password', role: 'admin' },
-    { username: 'ares', password: 'ares', role: 'operator' }
+    { username: 'admin', password: hashPassword(adminPass), role: 'admin' },
+    { username: 'ares', password: hashPassword(operatorPass), role: 'operator' }
   ];
   fs.writeFileSync(usersFile, JSON.stringify(defaultUsers, null, 2));
+  console.log('==================================================================');
+  console.log(' [Auth] First boot — generated default credentials (change these):');
+  console.log(`   admin / ${adminPass}`);
+  console.log(`   ares  / ${operatorPass}`);
+  console.log(' This message will not repeat — the passwords are not recoverable');
+  console.log(' from config/users.json after this (only their hash is stored).');
+  console.log('==================================================================');
 }
 let usersDB = JSON.parse(fs.readFileSync(usersFile));
 function saveUsers() { fs.writeFileSync(usersFile, JSON.stringify(usersDB, null, 2)); }
@@ -69,7 +102,27 @@ function saveSavedObjects() { fs.writeFileSync(savedObjectsFile, JSON.stringify(
 const createZipTokenStore = require('./lib/zip-tokens.js');
 const { issueZipToken, revokeZipTokens, verifyZipToken } = createZipTokenStore(configDir);
 
-const sessions = {};
+// D9: sessions used to live only in memory, so every deploy (git pull + rebuild,
+// which the CI pipeline does on every push to main) logged every user out. Persist
+// across restarts the same way users.json and saved_objects.json already do.
+const sessionsFile = path.join(configDir, 'sessions.json');
+let sessions = {};
+if (fs.existsSync(sessionsFile)) {
+  try { sessions = JSON.parse(fs.readFileSync(sessionsFile)); }
+  catch (e) { sessions = {}; }
+}
+function saveSessions() { fs.writeFileSync(sessionsFile, JSON.stringify(sessions, null, 2)); }
+// Drop anything that already expired while the process was down, and persist
+// that cleanup so a stale file doesn't just grow forever across restarts.
+{
+  const now = Date.now();
+  let pruned = false;
+  for (const sid of Object.keys(sessions)) {
+    if (!sessions[sid] || sessions[sid].expires <= now) { delete sessions[sid]; pruned = true; }
+  }
+  if (pruned) saveSessions();
+}
+
 function getSession(req) {
   const cookieHeader = req.headers.cookie || '';
   const match = cookieHeader.match(/ares_session_id=([^;]+)/);
@@ -77,12 +130,30 @@ function getSession(req) {
     const sid = match[1];
     const session = sessions[sid];
     if (session && session.expires > Date.now()) return session;
-    if (session) delete sessions[sid];
+    if (session) { delete sessions[sid]; saveSessions(); }
   }
   return null;
 }
 
 const activeRecordings = {};
+
+// Shared TLS credential/verification options for every outbound connection to TAK
+// Server — the three REST helpers below, the mission-package uploader, and the CoT
+// TCP client. These five call sites used to build this independently and had
+// drifted: three hardcoded rejectUnauthorized:false with no CA configured at all,
+// so TAK_REJECT_UNAUTHORIZED had no effect on them regardless of its value. One
+// helper now backs all five, so verifying the server's certificate is one env
+// var, not an audit of five call sites for consistency (see D8).
+function takTlsOptions() {
+  const opts = { rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true' };
+  if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) opts.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
+  if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) opts.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
+  if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) opts.ca = fs.readFileSync(process.env.TAK_CA_CERT);
+  // Needed when connecting via a Docker-internal hostname (e.g. host.docker.internal)
+  // while the server cert's CN/SAN is the public name (e.g. ares-werx.com).
+  if (process.env.TAK_TLS_SERVERNAME) opts.servername = process.env.TAK_TLS_SERVERNAME;
+  return opts;
+}
 
 const httpServer = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -95,10 +166,16 @@ const httpServer = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { user, pass } = JSON.parse(body);
-        const validUser = usersDB.find(u => u.username === user && u.password === pass);
+        const validUser = usersDB.find(u => u.username === user && verifyPassword(pass, u.password));
         if (validUser) {
+          // Migrate a legacy plaintext account to a hash on its first successful login.
+          if (!validUser.password.startsWith('scrypt:')) {
+            validUser.password = hashPassword(pass);
+            saveUsers();
+          }
           const sid = crypto.randomBytes(32).toString('hex');
           sessions[sid] = { username: validUser.username, role: validUser.role, expires: Date.now() + 86400000 };
+          saveSessions();
           res.setHeader('Set-Cookie', `ares_session_id=${sid}; Path=/; HttpOnly; Max-Age=86400`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, role: validUser.role }));
@@ -115,6 +192,7 @@ const httpServer = http.createServer((req, res) => {
     const match = cookieHeader.match(/ares_session_id=([^;]+)/);
     if (match) {
       delete sessions[match[1]];
+      saveSessions();
     }
     res.setHeader('Set-Cookie', 'ares_session_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly');
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -166,7 +244,7 @@ const httpServer = http.createServer((req, res) => {
           if (usersDB.find(u => u.username === username)) {
             res.writeHead(400); res.end(JSON.stringify({ error: 'User exists' })); return;
           }
-          usersDB.push({ username, password, role }); saveUsers();
+          usersDB.push({ username, password: hashPassword(password), role }); saveUsers();
           res.writeHead(200); res.end(JSON.stringify({ success: true }));
         } catch (e) { res.writeHead(400); res.end(); }
       });
@@ -510,15 +588,13 @@ const httpServer = http.createServer((req, res) => {
     }
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: '/Marti/sync/search',
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      rejectUnauthorized: false
+      headers: { 'Accept': 'application/json' }
     };
-    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
     
     const proxyReq = https.request(tlsOptions, (proxyRes) => {
       let data = '';
@@ -556,15 +632,13 @@ const httpServer = http.createServer((req, res) => {
     }
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: '/Marti/api/contacts/all',
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      rejectUnauthorized: false
+      headers: { 'Accept': 'application/json' }
     };
-    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
     
     const proxyReq = https.request(tlsOptions, (proxyRes) => {
       let data = '';
@@ -598,14 +672,12 @@ const httpServer = http.createServer((req, res) => {
     const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: hashPath.startsWith('/Marti') ? hashPath : `/Marti/sync/content?${urlObj.searchParams.toString()}`,
-      method: 'GET',
-      rejectUnauthorized: false
+      method: 'GET'
     };
-    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
     
     const proxyReq = https.request(tlsOptions, (proxyRes) => {
       res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -1146,16 +1218,12 @@ async function uploadMissionPackageToTakServer(zipBuffer, filename) {
     const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: '/Marti/sync/missionupload',
-      method: 'POST',
-      rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true'
+      method: 'POST'
     };
-    if (process.env.TAK_CLIENT_CERT) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
-    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
-    if (process.env.TAK_TLS_SERVERNAME) tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
 
     const form = new FormData();
     form.append('assetfile', zipBuffer, { filename, contentType: 'application/zip' });
@@ -1212,20 +1280,7 @@ function connectTAK() {
   let pingInterval = null;
 
   if (useTls) {
-    const tlsOptions = {};
-    if (process.env.TAK_CLIENT_CERT) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
-    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) {
-      tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
-    }
-    // Default to false for self-signed TAK Server certificates unless explicitly set to true
-    tlsOptions.rejectUnauthorized = process.env.TAK_REJECT_UNAUTHORIZED === 'true';
-    // Allow overriding the TLS servername for hostname verification.
-    // Needed when connecting via Docker hostname (host.docker.internal)
-    // but the server cert CN is a different name (e.g. ares-werx.com).
-    if (process.env.TAK_TLS_SERVERNAME) {
-      tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
-    }
+    const tlsOptions = takTlsOptions();
     takClient = tls.connect(takPort, takHost, tlsOptions, () => {
       console.log(`Connected to TAK Server on ${takHost}:${takPort} (TLS)`);
       takServerConnected = true;

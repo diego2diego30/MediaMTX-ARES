@@ -46,6 +46,14 @@ services:
       - TAK_CLIENT_KEY=/app/cert/admin.key
       - TAK_CA_CERT=/app/cert/truststore-root.pem
       - TAK_TLS_SERVERNAME=ares-werx.com
+      # D8: explicitly false pending a live check. The server cert's CN is
+      # "takserver" (see fix-certs.sh's makeCert.sh call) but TAK_TLS_SERVERNAME
+      # above is "ares-werx.com" — if the cert has no matching SAN, flipping this
+      # to true breaks the live CoT connection outright. Verify first:
+      #   openssl s_client -connect localhost:8089 -CAfile cert/truststore-root.pem \
+      #     -servername ares-werx.com </dev/null 2>&1 | grep -E "Verify return code|subject="
+      # Once "Verify return code: 0" is confirmed, set this to true.
+      - TAK_REJECT_UNAUTHORIZED=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
