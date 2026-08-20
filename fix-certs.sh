@@ -163,8 +163,8 @@ cp "$TAK_CERT_DIR/files/admin.p12"              "$ARES_DIR/ARES_Secure_Connectio
 cp "$TAK_CERT_DIR/files/truststore-root.p12"    "$ARES_DIR/ARES_Secure_Connection/"
 
 # ── 10. Register Nginx Admin Certificate with TAK Server ──
-echo "-> [9/10] Registering admin certificate with TAK Server (Nginx Proxy mTLS)..."
-# We must register the admin.pem generated in step 5 with TAK's UserManager 
+echo "-> [9/12] Registering admin certificate with TAK Server (Nginx Proxy mTLS)..."
+# We must register the admin.pem generated in step 5 with TAK's UserManager
 # so that the WebTAK proxy (port 8444) has __ADMIN__ access.
 if docker exec takserver sh -c 'cd /opt/tak && java -jar utils/UserManager.jar certmod -A certs/files/admin.pem' 2>/dev/null; then
   echo "   ✅ admin.pem registered with __ADMIN__ group successfully."
@@ -173,7 +173,12 @@ else
 fi
 
 # ── 11. Restart TAK Server to load new keystores ──
-echo "-> [10/10] Restarting TAK Server to load new keystores and auth config..."
+# This step is load-bearing for cert trust: until TAK Server actually reloads,
+# it keeps serving its OLD keystore on :8089 while every package generated from
+# here on bundles the NEW Root CA — a guaranteed "certificate not trusted" on
+# ATAK/iTAK. So unlike the other steps in this script, failures here are fatal
+# instead of a soft warning.
+echo "-> [10/12] Restarting TAK Server to load new keystores and auth config..."
 TAK_COMPOSE_DIR=""
 for candidate in "/root/takserver" "/opt/tak"; do
   if [ -f "$candidate/docker-compose.yml" ]; then
@@ -182,24 +187,83 @@ for candidate in "/root/takserver" "/opt/tak"; do
   fi
 done
 
-if [ -n "$TAK_COMPOSE_DIR" ]; then
-  cd "$TAK_COMPOSE_DIR"
-  docker compose restart 2>/dev/null || docker-compose restart 2>/dev/null || true
-  echo "   TAK Server restarted from $TAK_COMPOSE_DIR"
-else
-  echo "   ⚠️  Could not find TAK docker-compose.yml — restart TAK Server manually:"
+if [ -z "$TAK_COMPOSE_DIR" ]; then
+  echo ""
+  echo "=================================================================="
+  echo "❌ FATAL: Could not find TAK Server's docker-compose.yml"
+  echo "   (looked in /root/takserver, /opt/tak)."
+  echo ""
+  echo "   TAK Server is STILL RUNNING with its OLD keystore. The certs just"
+  echo "   written to disk (including truststore-root.p12) do NOT match what"
+  echo "   TAK Server is currently presenting on :8089."
+  echo ""
+  echo "   DO NOT generate or hand out any user packages until TAK Server has"
+  echo "   been restarted. Restart it manually, then rerun this script from"
+  echo "   the correct location, or set the compose dir and restart yourself:"
   echo "      cd /path/to/takserver && docker compose restart"
+  echo "=================================================================="
+  exit 1
 fi
 
+cd "$TAK_COMPOSE_DIR"
+if ! docker compose restart 2>/dev/null && ! docker-compose restart 2>/dev/null; then
+  echo ""
+  echo "=================================================================="
+  echo "❌ FATAL: 'docker compose restart' failed in $TAK_COMPOSE_DIR."
+  echo ""
+  echo "   TAK Server may still be serving its OLD keystore. DO NOT generate"
+  echo "   or hand out any user packages until this is resolved — check:"
+  echo "      cd $TAK_COMPOSE_DIR && docker compose logs --tail 50"
+  echo "=================================================================="
+  exit 1
+fi
+echo "   TAK Server restarted from $TAK_COMPOSE_DIR"
+cd "$ARES_DIR"
+
 # ── 12. Rebuild telemetry bridge ──
-echo "-> [11/11] Rebuilding telemetry bridge with new certs..."
+echo "-> [11/12] Rebuilding telemetry bridge with new certs..."
 cd "$ARES_DIR"
 docker compose -f docker-compose.prod.yml up -d --build telemetry 2>/dev/null || true
+
+# ── 13. Verify the live TLS cert on :8089 actually chains to the new Root CA ──
+# This is the check that would have caught the original bug: the restart
+# "succeeding" doesn't guarantee TAK Server picked up the NEW keystore. Confirm
+# it directly by doing a real TLS handshake against the new CA before we ever
+# tell the operator it's safe to hand out packages.
+echo "-> [12/12] Verifying TAK Server's live certificate matches the new Root CA..."
+echo "   ── waiting for TAK Server to come back up (20s)... ──"
+sleep 20
+
+CHAIN_OK=0
+if [ -f "$ARES_DIR/cert/truststore-root.pem" ]; then
+  if openssl s_client -connect localhost:8089 -CAfile "$ARES_DIR/cert/truststore-root.pem" </dev/null 2>&1 \
+      | grep -q "Verify return code: 0"; then
+    CHAIN_OK=1
+  fi
+fi
+
+if [ "$CHAIN_OK" = "1" ]; then
+  echo "   ✅ VERIFIED: TAK Server's live cert on :8089 chains to the new Root CA."
+else
+  echo ""
+  echo "=================================================================="
+  echo "❌ WARNING: Could not verify that TAK Server's live cert on :8089"
+  echo "   chains to the new Root CA. Packages generated now may fail with"
+  echo "   'certificate not trusted' on ATAK/iTAK."
+  echo ""
+  echo "   Check manually:"
+  echo "      openssl s_client -connect ares-werx.com:8089 -CAfile cert/truststore-root.pem"
+  echo "=================================================================="
+fi
 
 # ── Done ──
 echo ""
 echo "=================================================================="
-echo " 🎉 SUCCESS — PKI Rebuild Complete"
+if [ "$CHAIN_OK" = "1" ]; then
+  echo " 🎉 SUCCESS — PKI Rebuild Complete & Verified"
+else
+  echo " ⚠️  PKI Rebuild Complete — VERIFICATION FAILED (see warning above)"
+fi
 echo "=================================================================="
 echo ""
 echo " All certs signed by: ARES-WERX Root CA"
@@ -212,10 +276,8 @@ echo "   Client key:           $ARES_DIR/cert/tak-client.key"
 echo "   Client cert (P12):    $ARES_DIR/cert/admin.p12"
 echo "   iTAK/ATAK Bundle:     $ARES_DIR/ARES_Secure_Connection.zip"
 echo ""
-echo " ── Auto-verifying bridge connection (waiting 20s for TAK to start)... ──"
+echo " ── Auto-verifying bridge connection... ──"
 echo "=================================================================="
-
-sleep 20
 
 BRIDGE_LOG=$(docker logs --tail 20 telemetry-bridge 2>&1)
 echo "$BRIDGE_LOG"
