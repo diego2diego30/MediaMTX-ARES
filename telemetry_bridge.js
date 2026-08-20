@@ -5,6 +5,9 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+let QRCode = null;
+try { QRCode = require('qrcode'); }
+catch (e) { console.warn('[QR] qrcode module not installed — /api/qr is disabled.'); }
 const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
 const tls = require('tls');
@@ -58,6 +61,55 @@ if (!fs.existsSync(savedObjectsFile)) {
 }
 let savedObjectsDB = JSON.parse(fs.readFileSync(savedObjectsFile));
 function saveSavedObjects() { fs.writeFileSync(savedObjectsFile, JSON.stringify(savedObjectsDB, null, 2)); }
+
+// A per-user package contains that user's client private key, so /user-zips/ cannot be
+// a guessable public URL. A download link is an HMAC over (username, expiry, serial).
+// Regenerating a user's package bumps their serial, which revokes every link already
+// handed out for them — that is the revoke path.
+const zipSecretFile = path.join(configDir, 'zip-token-secret');
+if (!fs.existsSync(zipSecretFile)) {
+  fs.writeFileSync(zipSecretFile, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
+}
+const zipTokenSecret = Buffer.from(fs.readFileSync(zipSecretFile, 'utf8').trim(), 'hex');
+
+const zipSerialsFile = path.join(configDir, 'zip_tokens.json');
+if (!fs.existsSync(zipSerialsFile)) fs.writeFileSync(zipSerialsFile, JSON.stringify({}, null, 2));
+let zipSerialsDB = JSON.parse(fs.readFileSync(zipSerialsFile));
+function saveZipSerials() { fs.writeFileSync(zipSerialsFile, JSON.stringify(zipSerialsDB, null, 2)); }
+
+const ZIP_TOKEN_TTL = parseInt(process.env.ZIP_TOKEN_TTL_SECONDS, 10) || 1800;
+
+function zipTokenSignature(username, exp, serial) {
+  return crypto.createHmac('sha256', zipTokenSecret)
+    .update(`${username}|${exp}|${serial}`)
+    .digest('base64url');
+}
+
+function issueZipToken(username) {
+  const serial = zipSerialsDB[username] || 0;
+  const exp = Math.floor(Date.now() / 1000) + ZIP_TOKEN_TTL;
+  return `${exp}.${serial}.${zipTokenSignature(username, exp, serial)}`;
+}
+
+function revokeZipTokens(username) {
+  zipSerialsDB[username] = (zipSerialsDB[username] || 0) + 1;
+  saveZipSerials();
+}
+
+function verifyZipToken(username, token) {
+  if (typeof token !== 'string') return false;
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  const exp = parseInt(parts[0], 10);
+  const serial = parseInt(parts[1], 10);
+  if (!Number.isFinite(exp) || !Number.isFinite(serial)) return false;
+  if (exp < Math.floor(Date.now() / 1000)) return false;
+  if (serial !== (zipSerialsDB[username] || 0)) return false;
+  const expected = Buffer.from(zipTokenSignature(username, exp, serial));
+  const given = Buffer.from(parts[2]);
+  if (expected.length !== given.length) return false;
+  return crypto.timingSafeEqual(expected, given);
+}
 
 const sessions = {};
 function getSession(req) {
@@ -687,7 +739,6 @@ const httpServer = http.createServer((req, res) => {
           const prefXml = `<?xml version='1.0' encoding='utf-8'?>\n<preferences>\n  <preference version="1" name="cot_streams">\n    <entry key="count" class="class java.lang.Integer">1</entry>\n    <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>\n    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n    <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>\n  </preference>\n  <preference version="1" name="com.atakmap.app_preferences">\n    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n    <entry key="locationCallsign" class="class java.lang.String">${safeCallsign}</entry>\n    <entry key="caLocation" class="class java.lang.String">certs/truststore-root.p12</entry>\n    <entry key="caPassword" class="class java.lang.String">atakatak</entry>\n    <entry key="certificateLocation" class="class java.lang.String">certs/${username}.p12</entry>\n    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>\n  </preference>\n</preferences>`;
 
           const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
-          const zipUrl = `https://${publicHost}/user-zips/${username}.zip`;
 
           const uuid = `${username}-${Date.now()}`;
           const manifestXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<MissionPackageManifest version="2">\n  <Configuration>\n    <Parameter name="uid" value="${uuid}"/>\n    <Parameter name="name" value="ARES-WERX ${username}"/>\n    <Parameter name="onReceiveDelete" value="true"/>\n  </Configuration>\n  <Contents>\n    <Content ignore="false" zipEntry="certs/${username}.p12">\n      <Parameter name="uid" value="${username}-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/truststore-root.p12">\n      <Parameter name="uid" value="truststore-root-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/${username}.pref">\n      <Parameter name="uid" value="${username}-pref"/>\n      <Parameter name="mimeType" value="application/x-tak-config"/>\n    </Content>\n  </Contents>\n</MissionPackageManifest>`;
@@ -701,6 +752,10 @@ const httpServer = http.createServer((req, res) => {
           const zipPath = path.join(userZipsDir, `${username}.zip`);
           zip.writeZip(zipPath);
 
+          // Any link handed out for this user's previous package is now void.
+          revokeZipTokens(username);
+          const zipUrl = `https://${publicHost}/user-zips/${username}.zip?t=${issueZipToken(username)}`;
+
           console.log(`[User ZIP] Generated: ${zipPath}`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, file: `${username}.zip`, url: zipUrl }));
@@ -710,6 +765,22 @@ const httpServer = http.createServer((req, res) => {
           res.end(JSON.stringify({ error: e.message }));
         }
       })();
+    });
+    return;
+  }
+
+  if (req.url.startsWith('/api/qr') && req.method === 'GET') {
+    const session = getSession(req);
+    if (!session || session.role !== 'admin') { res.writeHead(403); res.end(JSON.stringify({ error: 'Forbidden' })); return; }
+    if (!QRCode) { res.writeHead(503); res.end(JSON.stringify({ error: 'qrcode module not installed' })); return; }
+    const parsed = new URL(req.url, 'http://localhost');
+    const data = parsed.searchParams.get('data');
+    if (!data) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing data' })); return; }
+    const size = Math.min(parseInt(parsed.searchParams.get('size'), 10) || 160, 512);
+    QRCode.toBuffer(data, { type: 'png', width: size, margin: 1 }, (err, buf) => {
+      if (err) { res.writeHead(500); res.end(JSON.stringify({ error: err.message })); return; }
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': buf.length, 'Cache-Control': 'no-store' });
+      res.end(buf);
     });
     return;
   }
@@ -775,7 +846,23 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url.startsWith('/user-zips/') && req.method === 'GET') {
-    const filename = path.basename(req.url);
+    // path.basename(req.url) would keep the query string attached to the filename,
+    // so split the URL properly before touching the filesystem.
+    const parsed = new URL(req.url, 'http://localhost');
+    const filename = path.basename(decodeURIComponent(parsed.pathname));
+    if (!filename.endsWith('.zip')) { res.writeHead(404); res.end('Not found'); return; }
+    const zipOwner = filename.slice(0, -4);
+
+    // A signed link, or an admin session (so the Hub's own download button works).
+    const session = getSession(req);
+    const isAdmin = !!(session && session.role === 'admin');
+    if (!isAdmin && !verifyZipToken(zipOwner, parsed.searchParams.get('t'))) {
+      console.warn(`[User ZIP] Denied ${filename} from ${req.socket.remoteAddress}`);
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid or expired download link' }));
+      return;
+    }
+
     const filepath = path.join(userZipsDir, filename);
     if (fs.existsSync(filepath)) {
       const stats = fs.statSync(filepath);
