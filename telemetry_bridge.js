@@ -1,10 +1,13 @@
 const WebSocket = require('ws');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+let QRCode = null;
+try { QRCode = require('qrcode'); }
+catch (e) { console.warn('[QR] qrcode module not installed — /api/qr is disabled.'); }
 const sqlite3 = require('sqlite3').verbose();
 const net = require('net');
 const tls = require('tls');
@@ -39,13 +42,46 @@ connectTilesDb('camp_lejeune.mbtiles');
 
 const configDir = path.join(__dirname, 'config');
 if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+
+// D10: passwords are stored as scrypt:<saltHex>:<hashHex>, never plaintext.
+// verifyPassword still accepts a bare stored string for backward compatibility
+// with accounts created before this change — the login handler below rehashes
+// on the first successful login against one of those, so the migration is
+// automatic and one-way (nothing ever reads a scrypt hash back into plaintext).
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64);
+  return `scrypt:${salt.toString('hex')}:${hash.toString('hex')}`;
+}
+function verifyPassword(password, stored) {
+  if (typeof stored !== 'string') return false;
+  if (stored.startsWith('scrypt:')) {
+    const [, saltHex, hashHex] = stored.split(':');
+    const expected = Buffer.from(hashHex, 'hex');
+    const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  }
+  return stored === password; // legacy plaintext account, pre-migration
+}
+
 const usersFile = path.join(configDir, 'users.json');
 if (!fs.existsSync(usersFile)) {
+  // Random per-install credentials instead of a hardcoded admin/password —
+  // printed once so there is exactly one place to find them.
+  const adminPass = crypto.randomBytes(9).toString('base64url');
+  const operatorPass = crypto.randomBytes(9).toString('base64url');
   const defaultUsers = [
-    { username: 'admin', password: 'password', role: 'admin' },
-    { username: 'ares', password: 'ares', role: 'operator' }
+    { username: 'admin', password: hashPassword(adminPass), role: 'admin' },
+    { username: 'ares', password: hashPassword(operatorPass), role: 'operator' }
   ];
   fs.writeFileSync(usersFile, JSON.stringify(defaultUsers, null, 2));
+  console.log('==================================================================');
+  console.log(' [Auth] First boot — generated default credentials (change these):');
+  console.log(`   admin / ${adminPass}`);
+  console.log(`   ares  / ${operatorPass}`);
+  console.log(' This message will not repeat — the passwords are not recoverable');
+  console.log(' from config/users.json after this (only their hash is stored).');
+  console.log('==================================================================');
 }
 let usersDB = JSON.parse(fs.readFileSync(usersFile));
 function saveUsers() { fs.writeFileSync(usersFile, JSON.stringify(usersDB, null, 2)); }
@@ -59,7 +95,34 @@ if (!fs.existsSync(savedObjectsFile)) {
 let savedObjectsDB = JSON.parse(fs.readFileSync(savedObjectsFile));
 function saveSavedObjects() { fs.writeFileSync(savedObjectsFile, JSON.stringify(savedObjectsDB, null, 2)); }
 
-const sessions = {};
+// A per-user package contains that user's client private key, so /user-zips/ cannot be
+// a guessable public URL. A download link is an HMAC over (username, expiry, serial).
+// Regenerating a user's package bumps their serial, which revokes every link already
+// handed out for them — that is the revoke path.
+const createZipTokenStore = require('./lib/zip-tokens.js');
+const { issueZipToken, revokeZipTokens, verifyZipToken } = createZipTokenStore(configDir);
+
+// D9: sessions used to live only in memory, so every deploy (git pull + rebuild,
+// which the CI pipeline does on every push to main) logged every user out. Persist
+// across restarts the same way users.json and saved_objects.json already do.
+const sessionsFile = path.join(configDir, 'sessions.json');
+let sessions = {};
+if (fs.existsSync(sessionsFile)) {
+  try { sessions = JSON.parse(fs.readFileSync(sessionsFile)); }
+  catch (e) { sessions = {}; }
+}
+function saveSessions() { fs.writeFileSync(sessionsFile, JSON.stringify(sessions, null, 2)); }
+// Drop anything that already expired while the process was down, and persist
+// that cleanup so a stale file doesn't just grow forever across restarts.
+{
+  const now = Date.now();
+  let pruned = false;
+  for (const sid of Object.keys(sessions)) {
+    if (!sessions[sid] || sessions[sid].expires <= now) { delete sessions[sid]; pruned = true; }
+  }
+  if (pruned) saveSessions();
+}
+
 function getSession(req) {
   const cookieHeader = req.headers.cookie || '';
   const match = cookieHeader.match(/ares_session_id=([^;]+)/);
@@ -67,12 +130,30 @@ function getSession(req) {
     const sid = match[1];
     const session = sessions[sid];
     if (session && session.expires > Date.now()) return session;
-    if (session) delete sessions[sid];
+    if (session) { delete sessions[sid]; saveSessions(); }
   }
   return null;
 }
 
 const activeRecordings = {};
+
+// Shared TLS credential/verification options for every outbound connection to TAK
+// Server — the three REST helpers below, the mission-package uploader, and the CoT
+// TCP client. These five call sites used to build this independently and had
+// drifted: three hardcoded rejectUnauthorized:false with no CA configured at all,
+// so TAK_REJECT_UNAUTHORIZED had no effect on them regardless of its value. One
+// helper now backs all five, so verifying the server's certificate is one env
+// var, not an audit of five call sites for consistency (see D8).
+function takTlsOptions() {
+  const opts = { rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true' };
+  if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) opts.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
+  if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) opts.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
+  if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) opts.ca = fs.readFileSync(process.env.TAK_CA_CERT);
+  // Needed when connecting via a Docker-internal hostname (e.g. host.docker.internal)
+  // while the server cert's CN/SAN is the public name (e.g. ares-werx.com).
+  if (process.env.TAK_TLS_SERVERNAME) opts.servername = process.env.TAK_TLS_SERVERNAME;
+  return opts;
+}
 
 const httpServer = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -85,10 +166,16 @@ const httpServer = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { user, pass } = JSON.parse(body);
-        const validUser = usersDB.find(u => u.username === user && u.password === pass);
+        const validUser = usersDB.find(u => u.username === user && verifyPassword(pass, u.password));
         if (validUser) {
+          // Migrate a legacy plaintext account to a hash on its first successful login.
+          if (!validUser.password.startsWith('scrypt:')) {
+            validUser.password = hashPassword(pass);
+            saveUsers();
+          }
           const sid = crypto.randomBytes(32).toString('hex');
           sessions[sid] = { username: validUser.username, role: validUser.role, expires: Date.now() + 86400000 };
+          saveSessions();
           res.setHeader('Set-Cookie', `ares_session_id=${sid}; Path=/; HttpOnly; Max-Age=86400`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, role: validUser.role }));
@@ -105,6 +192,7 @@ const httpServer = http.createServer((req, res) => {
     const match = cookieHeader.match(/ares_session_id=([^;]+)/);
     if (match) {
       delete sessions[match[1]];
+      saveSessions();
     }
     res.setHeader('Set-Cookie', 'ares_session_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly');
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -156,7 +244,7 @@ const httpServer = http.createServer((req, res) => {
           if (usersDB.find(u => u.username === username)) {
             res.writeHead(400); res.end(JSON.stringify({ error: 'User exists' })); return;
           }
-          usersDB.push({ username, password, role }); saveUsers();
+          usersDB.push({ username, password: hashPassword(password), role }); saveUsers();
           res.writeHead(200); res.end(JSON.stringify({ success: true }));
         } catch (e) { res.writeHead(400); res.end(); }
       });
@@ -500,15 +588,13 @@ const httpServer = http.createServer((req, res) => {
     }
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: '/Marti/sync/search',
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      rejectUnauthorized: false
+      headers: { 'Accept': 'application/json' }
     };
-    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
     
     const proxyReq = https.request(tlsOptions, (proxyRes) => {
       let data = '';
@@ -546,15 +632,13 @@ const httpServer = http.createServer((req, res) => {
     }
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: '/Marti/api/contacts/all',
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      rejectUnauthorized: false
+      headers: { 'Accept': 'application/json' }
     };
-    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
     
     const proxyReq = https.request(tlsOptions, (proxyRes) => {
       let data = '';
@@ -588,14 +672,12 @@ const httpServer = http.createServer((req, res) => {
     const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: hashPath.startsWith('/Marti') ? hashPath : `/Marti/sync/content?${urlObj.searchParams.toString()}`,
-      method: 'GET',
-      rejectUnauthorized: false
+      method: 'GET'
     };
-    if (process.env.TAK_CLIENT_CERT && fs.existsSync(process.env.TAK_CLIENT_CERT)) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY && fs.existsSync(process.env.TAK_CLIENT_KEY)) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
     
     const proxyReq = https.request(tlsOptions, (proxyRes) => {
       res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -636,80 +718,60 @@ const httpServer = http.createServer((req, res) => {
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
     req.on('end', () => {
-      (async () => {
-        try {
-          const { username, callsign } = JSON.parse(body);
-          if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
-            res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid username' }));
-            return;
-          }
-          const safeCallsign = callsign || username;
+      let username, callsign;
+      try {
+        ({ username, callsign } = JSON.parse(body));
+      } catch (e) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
+      if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid username' }));
+        return;
+      }
+      const safeCallsign = callsign || username;
+      const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
 
-          const { exec } = require('child_process');
-          const util = require('util');
-          const execP = util.promisify(exec);
-
-          // Step 1: Generate client cert with correct env vars for cert-metadata.sh
-          await execP(`docker exec takserver bash -c 'cd /opt/tak/certs && STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client ${username}'`);
-
-          // Step 2: Extract fingerprint and register in UserAuthenticationFile.xml
-          const fpResult = await execP(`docker exec takserver bash -c 'openssl x509 -in /opt/tak/certs/files/${username}.pem -noout -fingerprint -sha256'`);
-          const fingerprint = fpResult.stdout.trim().replace(/^sha256 Fingerprint=/i, '');
-          // Read UserAuthenticationFile via stdout, modify, write back via stdin
-          const readResult = await execP(`docker exec takserver cat /opt/tak/UserAuthenticationFile.xml`);
-          let authContent = readResult.stdout;
-          // Remove any existing entry for this user (multiple possible formats)
-          authContent = authContent.replace(new RegExp(`<User[^>]*identifier="${username}"[^>]*>[\\s\\S]*?</User>\\n?`), '');
-          // Insert new entry before closing root tag
-          const userEntry = `  <User identifier="${username}" fingerprint="${fingerprint}">\n    <groupList>__ANON__</groupList>\n  </User>\n`;
-          authContent = authContent.replace('</UserAuthenticationFile>', userEntry + '</UserAuthenticationFile>');
-          // Write back via stdin
-          const writeChild = exec(`docker exec -i takserver sh -c 'cat > /opt/tak/UserAuthenticationFile.xml'`);
-          writeChild.stdin.write(authContent);
-          writeChild.stdin.end();
-          await new Promise(resolve => writeChild.on('close', resolve));
-          console.log(`[User ZIP] Fingerprint registered for ${username}: ${fingerprint}`);
-
-          // Step 3: Rebuild user .p12 with AES-256-CBC (makeCert.sh uses RC2-40-CBC which Java 17+ can't read)
-          await execP(`docker exec takserver bash -c 'cd /opt/tak/certs/files && openssl pkcs12 -export -in ${username}.pem -inkey ${username}.key -out ${username}.p12 -name ${username} -passin pass:atakatak -passout pass:atakatak -keypbe AES-256-CBC -certpbe AES-256-CBC'`);
-
-          // Step 4: Copy p12 files out
-          await execP(`docker cp takserver:/opt/tak/certs/files/${username}.p12 /tmp/${username}.p12`);
-          await execP(`docker cp takserver:/opt/tak/certs/files/truststore-root.p12 /tmp/truststore-root.p12`);
-
-          const userP12 = fs.readFileSync(`/tmp/${username}.p12`);
-          const caP12 = fs.readFileSync('/tmp/truststore-root.p12');
-
-          // Clean up temporary files
-          try { fs.unlinkSync(`/tmp/${username}.p12`); } catch(e){}
-          try { fs.unlinkSync('/tmp/truststore-root.p12'); } catch(e){}
-
-          const prefXml = `<?xml version='1.0' encoding='utf-8'?>\n<preferences>\n  <preference version="1" name="cot_streams">\n    <entry key="count" class="class java.lang.Integer">1</entry>\n    <entry key="description0" class="class java.lang.String">ARES-WERX TLS Connection</entry>\n    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n    <entry key="connectString0" class="class java.lang.String">ares-werx.com:8089:ssl</entry>\n  </preference>\n  <preference version="1" name="com.atakmap.app_preferences">\n    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n    <entry key="locationCallsign" class="class java.lang.String">${safeCallsign}</entry>\n    <entry key="caLocation" class="class java.lang.String">certs/truststore-root.p12</entry>\n    <entry key="caPassword" class="class java.lang.String">atakatak</entry>\n    <entry key="certificateLocation" class="class java.lang.String">certs/${username}.p12</entry>\n    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>\n  </preference>\n</preferences>`;
-
-          const publicHost = process.env.PUBLIC_HOST || 'ares-werx.com';
-          const zipUrl = `https://${publicHost}/user-zips/${username}.zip`;
-
-          const uuid = `${username}-${Date.now()}`;
-          const manifestXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<MissionPackageManifest version="2">\n  <Configuration>\n    <Parameter name="uid" value="${uuid}"/>\n    <Parameter name="name" value="ARES-WERX ${username}"/>\n    <Parameter name="onReceiveDelete" value="true"/>\n  </Configuration>\n  <Contents>\n    <Content ignore="false" zipEntry="certs/${username}.p12">\n      <Parameter name="uid" value="${username}-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/truststore-root.p12">\n      <Parameter name="uid" value="truststore-root-p12"/>\n    </Content>\n    <Content ignore="false" zipEntry="certs/${username}.pref">\n      <Parameter name="uid" value="${username}-pref"/>\n      <Parameter name="mimeType" value="application/x-tak-config"/>\n    </Content>\n  </Contents>\n</MissionPackageManifest>`;
-
-          const zip = new AdmZip();
-          zip.addFile(`certs/${username}.p12`, userP12);
-          zip.addFile('certs/truststore-root.p12', caP12);
-          zip.addFile(`certs/${username}.pref`, Buffer.from(prefXml, 'utf8'));
-          zip.addFile('MANIFEST/manifest.xml', Buffer.from(manifestXml, 'utf8'));
-
-          const zipPath = path.join(userZipsDir, `${username}.zip`);
-          zip.writeZip(zipPath);
-
-          console.log(`[User ZIP] Generated: ${zipPath}`);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, file: `${username}.zip`, url: zipUrl }));
-        } catch (e) {
-          console.error('[User ZIP Error]', e.message);
+      // Certificate + package generation lives in one place — bin/generate-user-zip.sh —
+      // so the Admin Hub and fix-certs.sh --reissue-all can't drift out of sync with
+      // each other. They used to duplicate this pipeline independently.
+      const scriptPath = path.join(__dirname, 'bin', 'generate-user-zip.sh');
+      execFile('bash', [scriptPath, username, safeCallsign], {
+        env: { ...process.env, PUBLIC_HOST: publicHost },
+        timeout: 60000,
+        maxBuffer: 4 * 1024 * 1024
+      }, (err, stdout, stderr) => {
+        if (err) {
+          console.error('[User ZIP Error]', stderr || err.message);
           res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message }));
+          res.end(JSON.stringify({ error: 'Package generation failed — see server logs' }));
+          return;
         }
-      })();
+        console.log(stdout.trim());
+
+        // Any link handed out for this user's previous package is now void.
+        revokeZipTokens(username);
+        const zipUrl = `https://${publicHost}/user-zips/${username}.zip?t=${issueZipToken(username)}`;
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, file: `${username}.zip`, url: zipUrl }));
+      });
+    });
+    return;
+  }
+
+  if (req.url.startsWith('/api/qr') && req.method === 'GET') {
+    const session = getSession(req);
+    if (!session || session.role !== 'admin') { res.writeHead(403); res.end(JSON.stringify({ error: 'Forbidden' })); return; }
+    if (!QRCode) { res.writeHead(503); res.end(JSON.stringify({ error: 'qrcode module not installed' })); return; }
+    const parsed = new URL(req.url, 'http://localhost');
+    const data = parsed.searchParams.get('data');
+    if (!data) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing data' })); return; }
+    const size = Math.min(parseInt(parsed.searchParams.get('size'), 10) || 160, 512);
+    QRCode.toBuffer(data, { type: 'png', width: size, margin: 1 }, (err, buf) => {
+      if (err) { res.writeHead(500); res.end(JSON.stringify({ error: err.message })); return; }
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': buf.length, 'Cache-Control': 'no-store' });
+      res.end(buf);
     });
     return;
   }
@@ -775,7 +837,23 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (req.url.startsWith('/user-zips/') && req.method === 'GET') {
-    const filename = path.basename(req.url);
+    // path.basename(req.url) would keep the query string attached to the filename,
+    // so split the URL properly before touching the filesystem.
+    const parsed = new URL(req.url, 'http://localhost');
+    const filename = path.basename(decodeURIComponent(parsed.pathname));
+    if (!filename.endsWith('.zip')) { res.writeHead(404); res.end('Not found'); return; }
+    const zipOwner = filename.slice(0, -4);
+
+    // A signed link, or an admin session (so the Hub's own download button works).
+    const session = getSession(req);
+    const isAdmin = !!(session && session.role === 'admin');
+    if (!isAdmin && !verifyZipToken(zipOwner, parsed.searchParams.get('t'))) {
+      console.warn(`[User ZIP] Denied ${filename} from ${req.socket.remoteAddress}`);
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid or expired download link' }));
+      return;
+    }
+
     const filepath = path.join(userZipsDir, filename);
     if (fs.existsSync(filepath)) {
       const stats = fs.statSync(filepath);
@@ -1140,16 +1218,12 @@ async function uploadMissionPackageToTakServer(zipBuffer, filename) {
     const restPort = parseInt(process.env.TAK_REST_PORT, 10) || 8443;
     
     const tlsOptions = {
+      ...takTlsOptions(),
       hostname: takHost,
       port: restPort,
       path: '/Marti/sync/missionupload',
-      method: 'POST',
-      rejectUnauthorized: process.env.TAK_REJECT_UNAUTHORIZED === 'true'
+      method: 'POST'
     };
-    if (process.env.TAK_CLIENT_CERT) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
-    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
-    if (process.env.TAK_TLS_SERVERNAME) tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
 
     const form = new FormData();
     form.append('assetfile', zipBuffer, { filename, contentType: 'application/zip' });
@@ -1206,20 +1280,7 @@ function connectTAK() {
   let pingInterval = null;
 
   if (useTls) {
-    const tlsOptions = {};
-    if (process.env.TAK_CLIENT_CERT) tlsOptions.cert = fs.readFileSync(process.env.TAK_CLIENT_CERT);
-    if (process.env.TAK_CLIENT_KEY) tlsOptions.key = fs.readFileSync(process.env.TAK_CLIENT_KEY);
-    if (process.env.TAK_CA_CERT && fs.existsSync(process.env.TAK_CA_CERT)) {
-      tlsOptions.ca = fs.readFileSync(process.env.TAK_CA_CERT);
-    }
-    // Default to false for self-signed TAK Server certificates unless explicitly set to true
-    tlsOptions.rejectUnauthorized = process.env.TAK_REJECT_UNAUTHORIZED === 'true';
-    // Allow overriding the TLS servername for hostname verification.
-    // Needed when connecting via Docker hostname (host.docker.internal)
-    // but the server cert CN is a different name (e.g. ares-werx.com).
-    if (process.env.TAK_TLS_SERVERNAME) {
-      tlsOptions.servername = process.env.TAK_TLS_SERVERNAME;
-    }
+    const tlsOptions = takTlsOptions();
     takClient = tls.connect(takPort, takHost, tlsOptions, () => {
       console.log(`Connected to TAK Server on ${takHost}:${takPort} (TLS)`);
       takServerConnected = true;

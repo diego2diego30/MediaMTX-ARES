@@ -21,7 +21,9 @@ jobs:
       - name: Validate Node.js Code Syntax
         run: |
           node --check telemetry_bridge.js
-          echo "✅ telemetry_bridge.js syntax valid"
+          node --check lib/zip-tokens.js
+          node --check bin/issue-zip-token.js
+          echo "✅ Node.js files syntax valid"
 
       - name: Validate Shell Scripts
         run: |

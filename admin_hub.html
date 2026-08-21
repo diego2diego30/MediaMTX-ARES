@@ -387,9 +387,9 @@
         dlLink.href = res.url;
         dlLink.download = fileName;
         dlLink.textContent = `Download ${fileName}`;
-        qrImg.src =
-          'https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=' +
-          encodeURIComponent(res.url);
+        // Self-hosted QR: the package URL carries a live download token, so it
+        // must never be sent to a third-party QR service.
+        qrImg.src = '/api/qr?size=160&data=' + encodeURIComponent(res.url);
         result.style.display = 'flex';
       }).catch(() => {
         btn.textContent = 'Generate Package';

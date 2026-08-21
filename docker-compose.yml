@@ -59,6 +59,9 @@ services:
       - TAK_CLIENT_KEY=/app/cert/admin.key
       - TAK_CA_CERT=/app/cert/truststore-root.pem
       - TAK_TLS_SERVERNAME=ares-werx.com
+      # D8: explicitly false pending a live check — see docker-compose.prod.yml
+      # for the verification command. Kept in step with prod intentionally.
+      - TAK_REJECT_UNAUTHORIZED=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
