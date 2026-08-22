@@ -54,15 +54,14 @@ docker cp "$TAK_CONTAINER:${CERT_FILES_DIR}/truststore-root.p12" "/tmp/truststor
 # The CA truststore comes straight out of makeRootCa.sh in RC2-40-CBC. Unlike the
 # user .p12 above (rebuilt as AES-256-CBC in Step 2), nothing has re-encrypted this
 # copy — Java 17+ (ATAK/iTAK) and OpenSSL 3.x both refuse to read RC2-40-CBC. Detect
-# and fix it here so every package this script builds is actually importable.
+# and fix it here so every package this script builds is actually importable. It's a
+# truststore (cert only, no key bag), so re-export carries no key over.
 if ! openssl pkcs12 -in /tmp/truststore-root.p12 -nokeys -passin pass:atakatak -out /dev/null 2>/dev/null; then
   echo "[User ZIP] truststore-root.p12 is legacy RC2-40-CBC — re-encrypting to AES-256-CBC..."
   openssl pkcs12 -legacy -in /tmp/truststore-root.p12 -nokeys -passin pass:atakatak -out /tmp/ca-root.pem
-  openssl pkcs12 -legacy -in /tmp/truststore-root.p12 -nocerts -nodes -passin pass:atakatak -out /tmp/ca-root.key
-  openssl pkcs12 -export -in /tmp/ca-root.pem -inkey /tmp/ca-root.key -out /tmp/truststore-root.p12 \
-    -name truststore-root -passin pass:atakatak -passout pass:atakatak \
-    -keypbe AES-256-CBC -certpbe AES-256-CBC
-  rm -f /tmp/ca-root.pem /tmp/ca-root.key
+  openssl pkcs12 -export -in /tmp/ca-root.pem -nokeys -out /tmp/truststore-root.p12 \
+    -name truststore-root -passout pass:atakatak -certpbe AES-256-CBC
+  rm -f /tmp/ca-root.pem
 fi
 
 # Step 4: Create pref XML

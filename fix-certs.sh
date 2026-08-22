@@ -129,17 +129,16 @@ for p12name in takserver admin; do
 done
 
 # truststore-root.p12 comes straight out of makeRootCa.sh as an RC2-40-CBC
-# PKCS12 — there is no separate ca.pem/ca.key at a fixed, predictable path to
-# rebuild it from (unlike takserver/admin above). Re-encrypt it in place instead:
-# read the existing p12 with the legacy provider (required for RC2-40-CBC on
-# OpenSSL 3.x), then re-export the same cert+key as AES-256-CBC.
+# PKCS12 — and unlike takserver/admin above, it's a truststore (cert only, no
+# key bag), so there is no key to carry over. Re-encrypt it in place instead:
+# read the cert with the legacy provider (required for RC2-40-CBC on OpenSSL
+# 3.x), then re-export just the cert as AES-256-CBC.
 pass="atakatak"
 if [ -f "truststore-root.p12" ]; then
   echo "   → truststore-root.p12 → AES-256-CBC"
   openssl pkcs12 -legacy -in truststore-root.p12 -nokeys -passin pass:$pass -out /tmp/ares-ca-root.pem
-  openssl pkcs12 -legacy -in truststore-root.p12 -nocerts -nodes -passin pass:$pass -out /tmp/ares-ca-root.key
-  openssl pkcs12 -export -in /tmp/ares-ca-root.pem -inkey /tmp/ares-ca-root.key -out truststore-root.p12 -name truststore-root -passin pass:$pass -passout pass:$pass -keypbe AES-256-CBC -certpbe AES-256-CBC
-  rm -f /tmp/ares-ca-root.pem /tmp/ares-ca-root.key
+  openssl pkcs12 -export -in /tmp/ares-ca-root.pem -nokeys -out truststore-root.p12 -name truststore-root -passout pass:$pass -certpbe AES-256-CBC
+  rm -f /tmp/ares-ca-root.pem
 else
   echo "   ⚠️  Skipping truststore-root (truststore-root.p12 not found)"
 fi
