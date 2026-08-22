@@ -102,11 +102,16 @@ echo "-> [2/9] Generating new Root CA ('ARES-WERX Root CA')..."
 STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeRootCa.sh --ca-name "ARES-WERX Root CA"
 
 # ── 4. Generate Server Certificate ──
-# CoreConfig.xml references "takserver.p12" so we must generate with that name.
-# Also copy as ares-werx.com.p12 for clarity.
-echo "-> [3/9] Generating Server Certificate (takserver / ares-werx.com)..."
-STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh server takserver
-cp files/takserver.p12 files/ares-werx.com.p12 2>/dev/null || true
+# makeCert.sh derives BOTH the CN and the single SAN entry from this name
+# (it writes "DNS.1 = $SNAME" and supports no additional SANs), so it has to be
+# the hostname clients actually verify against — not the Docker service name.
+# It used to be "takserver", which meant any client doing real hostname
+# verification against ares-werx.com failed with ERR_TLS_CERT_ALTNAME_INVALID
+# even though the chain itself was trusted. CoreConfig.xml is reconciled to
+# match further down, so the keystore filename follows this name too.
+SERVER_CERT_NAME="ares-werx.com"
+echo "-> [3/9] Generating Server Certificate ($SERVER_CERT_NAME)..."
+STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh server "$SERVER_CERT_NAME"
 
 # ── 5. Generate Admin Client Certificate ──
 echo "-> [4/9] Generating Admin Client Certificate..."
@@ -116,7 +121,7 @@ STATE=MD CITY=ANNAPOLIS ORGANIZATIONAL_UNIT=ARES ./makeCert.sh client admin || t
 #        Java 17+ AND OpenSSL 3.x's default provider (Ubuntu 24.04) both refuse to read) ──
 echo "-> [5/9] Rebuilding all .p12 with AES-256-CBC..."
 cd files
-for p12name in takserver admin; do
+for p12name in "$SERVER_CERT_NAME" admin; do
   pemfile="${p12name}.pem"
   keyfile="${p12name}.key"
   pass="atakatak"
@@ -129,7 +134,7 @@ for p12name in takserver admin; do
 done
 
 # truststore-root.p12 comes straight out of makeRootCa.sh as an RC2-40-CBC
-# PKCS12 — and unlike takserver/admin above, it's a truststore (cert only, no
+# PKCS12 — and unlike the server/admin certs above, it's a truststore (cert only, no
 # key bag), so there is no key to carry over. Re-encrypt it in place instead:
 # read the cert with the legacy provider (required for RC2-40-CBC on OpenSSL
 # 3.x), then re-export just the cert as AES-256-CBC.
@@ -217,6 +222,41 @@ else
   echo "   ⚠️  Could not run UserManager.jar in takserver container (is it running?). Nginx WebTAK may return 403."
 fi
 
+# ── 10b. Point CoreConfig.xml at the server keystore we actually generated ──
+# CoreConfig.xml hardcodes an absolute keystoreFile path. It shipped pointing at
+# takserver.p12; the server cert is now issued as $SERVER_CERT_NAME (above), so
+# the keystore filename changed with it. If CoreConfig still references the old
+# file, TAK Server would either fail to start or keep serving the stale cert —
+# so reconcile it here rather than leaving it as an undocumented manual edit on
+# the box. Idempotent: a CoreConfig already pointing at the right file is left
+# alone, and a timestamped backup is taken before any change.
+echo "-> [9b/12] Reconciling CoreConfig.xml keystore reference..."
+CORECONFIG="$TAK_CERT_DIR/../CoreConfig.xml"
+if [ ! -f "$CORECONFIG" ]; then
+  echo "   ⚠️  CoreConfig.xml not found at $CORECONFIG — skipping (check the keystore path manually)."
+elif grep -q "certs/files/${SERVER_CERT_NAME}.p12" "$CORECONFIG"; then
+  echo "   ✅ Already points at ${SERVER_CERT_NAME}.p12 — no change needed."
+else
+  CC_BACKUP="$CORECONFIG.bak.$(date +%Y%m%d-%H%M%S)"
+  cp "$CORECONFIG" "$CC_BACKUP"
+  # Rewrite only the keystoreFile basename, leaving truststoreFile and every
+  # other attribute untouched.
+  sed -i -E "s#(keystoreFile=\"[^\"]*/)[^\"/]+\.p12\"#\1${SERVER_CERT_NAME}.p12\"#g" "$CORECONFIG"
+  if grep -q "certs/files/${SERVER_CERT_NAME}.p12" "$CORECONFIG" && python3 -c "import xml.etree.ElementTree as ET; ET.parse('$CORECONFIG')" 2>/dev/null; then
+    echo "   ✅ Updated to ${SERVER_CERT_NAME}.p12 (backup: $CC_BACKUP)"
+  else
+    cp "$CC_BACKUP" "$CORECONFIG"
+    echo ""
+    echo "=================================================================="
+    echo "❌ FATAL: CoreConfig.xml edit failed validation — restored from backup."
+    echo "   TAK Server was NOT restarted and is untouched. Update the"
+    echo "   keystoreFile attribute to ${SERVER_CERT_NAME}.p12 by hand:"
+    echo "      $CORECONFIG"
+    echo "=================================================================="
+    exit 1
+  fi
+fi
+
 # ── 11. Restart TAK Server to load new keystores ──
 # This step is load-bearing for cert trust: until TAK Server actually reloads,
 # it keeps serving its OLD keystore on :8089 while every package generated from
@@ -279,9 +319,15 @@ echo "-> [12/12] Verifying TAK Server's live certificate matches the new Root CA
 echo "   ── waiting for TAK Server to come back up (20s)... ──"
 sleep 20
 
+# -verify_hostname is deliberate: without it, s_client checks only that the chain
+# is trusted, which passes even when the cert's SAN doesn't cover the name clients
+# connect to. That gap is how a cert with SAN "DNS:takserver" reported "Verify
+# return code: 0" while Node clients verifying ares-werx.com failed outright with
+# ERR_TLS_CERT_ALTNAME_INVALID. Verify what clients actually verify.
 CHAIN_OK=0
 if [ -f "$ARES_DIR/cert/truststore-root.pem" ]; then
-  if openssl s_client -connect localhost:8089 -CAfile "$ARES_DIR/cert/truststore-root.pem" </dev/null 2>&1 \
+  if openssl s_client -connect localhost:8089 -CAfile "$ARES_DIR/cert/truststore-root.pem" \
+      -servername "$SERVER_CERT_NAME" -verify_hostname "$SERVER_CERT_NAME" </dev/null 2>&1 \
       | grep -q "Verify return code: 0"; then
     CHAIN_OK=1
   fi
